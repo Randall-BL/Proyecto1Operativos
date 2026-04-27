@@ -1,7 +1,7 @@
 # Scheduling Ships - To-Do List
 
 ## Calendarizadores
-- [ ] FCFS
+- [x] FCFS
 - [ ] Round Robin
 - [ ] Prioridad
 - [ ] SJF
@@ -13,11 +13,11 @@
 - [ ] Letrero (dirección alternante)
 - [ ] Tico (sin control)
 - [ ] Detección de colisiones
-- [ ] Movimiento de barcos
+- [x] Movimiento de barcos
 
 ## Barcos
-- [ ] Tipos: Normal, Pesquera, Patrulla
-- [ ] Generación por carga predefinida
+- [x] Tipos: Normal, Pesquera, Patrulla
+- [x] Generación por carga predefinida
 - [ ] Generación por botones
 
 ## Interrupciones
@@ -27,7 +27,7 @@
 
 ## ESP32 + LCD
 - [ ] Setup I2C y LCD
-- [ ] Pantalla estado canal
+- [x] Pantalla estado canal
 - [ ] Pantalla detalles barcos
 - [ ] Pantalla estadísticas
 - [ ] Pantalla configuración
