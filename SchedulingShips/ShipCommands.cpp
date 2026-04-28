@@ -14,9 +14,42 @@ static void handleCommand(ShipScheduler &scheduler, String command) {
     return;
   }
 
+  if (command.startsWith("alg ")) {
+    String arg = command.substring(4);
+    arg.trim();
+    if (arg == "fcfs") {
+      scheduler.setAlgorithm(ShipScheduler::ALG_FCFS);
+      Serial.println("Algoritmo: FCFS");
+    } else if (arg == "strn") {
+      scheduler.setAlgorithm(ShipScheduler::ALG_STRN);
+      Serial.println("Algoritmo: STRN (Shortest Remaining Time)");
+    } else if (arg == "edf") {
+      scheduler.setAlgorithm(ShipScheduler::ALG_EDF);
+      Serial.println("Algoritmo: EDF (Earliest Deadline First)");
+    } else {
+      Serial.println("Uso: alg <fcfs|strn|edf>");
+    }
+    return;
+  }
+
   if (command == "clear") {
     scheduler.clear();
     Serial.println("Colas limpiadas.");
+    return;
+  }
+
+  if (command == "pause") {
+    scheduler.pauseActive();
+    return;
+  }
+
+  if (command == "resume") {
+    scheduler.resumeActive();
+    return;
+  }
+
+  if (command == "status") {
+    scheduler.dumpStatus();
     return;
   }
 
@@ -39,8 +72,8 @@ static void handleCommand(ShipScheduler &scheduler, String command) {
       type = BOAT_PATRULLA;
     }
 
-    scheduler.enqueue(makeBoat(side, type));
-    Serial.println("Barco agregado a la cola FCFS.");
+    scheduler.enqueue(createBoat(side, type));
+    Serial.println("Barco agregado a la cola.");
     return;
   }
 

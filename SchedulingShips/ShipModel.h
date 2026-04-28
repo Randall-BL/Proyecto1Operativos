@@ -19,6 +19,9 @@ enum BoatState : uint8_t {
   STATE_DONE
 };
 
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
 struct Boat {
   uint8_t id;
   BoatType type;
@@ -27,6 +30,12 @@ struct Boat {
   unsigned long serviceMillis;
   unsigned long startedAt;
   BoatState state;
+
+  // FreeRTOS integration
+  TaskHandle_t taskHandle;
+  volatile bool allowedToMove; // legacy; notifications now used
+  unsigned long remainingMillis;
+  unsigned long deadlineMillis; // absolute millis
 };
 
 constexpr uint8_t MAX_BOATS = 16;
@@ -40,4 +49,5 @@ const char *boatTypeShort(BoatType type);
 uint16_t boatColor(BoatType type);
 unsigned long serviceTimeForType(BoatType type);
 void resetBoatSequence();
-Boat makeBoat(BoatSide origin, BoatType type);
+Boat *createBoat(BoatSide origin, BoatType type);
+void destroyBoat(Boat *b);

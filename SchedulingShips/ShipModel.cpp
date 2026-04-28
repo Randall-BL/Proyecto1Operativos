@@ -49,15 +49,23 @@ unsigned long serviceTimeForType(BoatType type) {
   }
   return 5000;
 }
-
-Boat makeBoat(BoatSide origin, BoatType type) {
-  Boat boat;
-  boat.id = nextBoatId++;
-  boat.type = type;
-  boat.origin = origin;
-  boat.arrivalOrder = nextArrivalOrder++;
-  boat.serviceMillis = serviceTimeForType(type);
-  boat.startedAt = 0;
-  boat.state = STATE_WAITING;
+Boat *createBoat(BoatSide origin, BoatType type) {
+  Boat *boat = new Boat();
+  boat->id = nextBoatId++;
+  boat->type = type;
+  boat->origin = origin;
+  boat->arrivalOrder = nextArrivalOrder++;
+  boat->serviceMillis = serviceTimeForType(type);
+  boat->startedAt = 0;
+  boat->state = STATE_WAITING;
+  boat->taskHandle = NULL;
+  boat->remainingMillis = boat->serviceMillis;
+  // default deadline: now + 2 * service time (can be overridden)
+  boat->deadlineMillis = millis() + (boat->serviceMillis * 2UL);
   return boat;
+}
+
+void destroyBoat(Boat *b) {
+  if (!b) return;
+  delete b;
 }

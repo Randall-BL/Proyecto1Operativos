@@ -5,8 +5,9 @@
 - [ ] Round Robin
 - [ ] Prioridad
 - [ ] SJF
-- [ ] STRN
-- [ ] EDF
+- [x] STRN
+- [x] EDF
+
 
 ## Canal y Control de Flujo
 - [ ] Equidad (W parameter)
@@ -32,13 +33,15 @@
 - [ ] Pantalla estadísticas
 - [ ] Pantalla configuración
 - [ ] Botones de entrada
+- [x] Pantalla en horizontal
 
 ## FreeRTOS
-- [ ] Task scheduler
+- [x] Task scheduler
 - [ ] Task física del canal
 - [ ] Task UI update
-- [ ] Task input handler
+- [x] Task input handler
 - [ ] Mutexes y sincronización
+- [ ] Integración tareas↔scheduler
 
 ## Configuración
 - [ ] Parsear config.txt
