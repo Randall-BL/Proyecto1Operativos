@@ -1,0 +1,53 @@
+#pragma once
+
+#include <Arduino.h>
+
+enum BoatType : uint8_t {
+  BOAT_NORMAL,
+  BOAT_PESQUERA,
+  BOAT_PATRULLA
+};
+
+enum BoatSide : uint8_t {
+  SIDE_LEFT,
+  SIDE_RIGHT
+};
+
+enum BoatState : uint8_t {
+  STATE_WAITING,
+  STATE_CROSSING,
+  STATE_DONE
+};
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+struct Boat {
+  uint8_t id;
+  BoatType type;
+  BoatSide origin;
+  unsigned long arrivalOrder;
+  unsigned long serviceMillis;
+  unsigned long startedAt;
+  BoatState state;
+
+  // FreeRTOS integration
+  TaskHandle_t taskHandle;
+  volatile bool allowedToMove; // legacy; notifications now used
+  unsigned long remainingMillis;
+  unsigned long deadlineMillis; // absolute millis
+};
+
+constexpr uint8_t MAX_BOATS = 16;
+constexpr uint8_t VISIBLE_QUEUE = 6;
+constexpr unsigned long UI_REFRESH_MS = 200;
+constexpr unsigned long CROSSING_MARGIN_MS = 250;
+
+const char *boatTypeName(BoatType type);
+const char *boatSideName(BoatSide side);
+const char *boatTypeShort(BoatType type);
+uint16_t boatColor(BoatType type);
+unsigned long serviceTimeForType(BoatType type);
+void resetBoatSequence();
+Boat *createBoat(BoatSide origin, BoatType type);
+void destroyBoat(Boat *b);
