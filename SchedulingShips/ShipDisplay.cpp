@@ -1,8 +1,9 @@
 #include "ShipDisplay.h"
 
+// Paleta de colores y constantes de diseno para la interfaz.
 constexpr uint16_t SHIP_DARK_GREY = 0x7BEF;
 constexpr uint16_t SHIP_NAVY = 0x000F;
-// Rotate display to landscape: swap width/height
+// Rotar la pantalla a horizontal: intercambia ancho y alto.
 constexpr uint8_t SCREEN_W = 160;
 constexpr uint8_t SCREEN_H = 128;
 constexpr uint8_t HEADER_H = 12;
@@ -22,6 +23,7 @@ constexpr uint8_t INFO_H = 10;
 constexpr uint8_t INFO_Y = FOOTER_Y - INFO_H - 1;
 constexpr uint8_t PANEL_INSET_X = 2;
 
+// Mapea el tiempo transcurrido a una posicion en pixeles dentro del canal.
 static int16_t mapProgress(unsigned long elapsed, unsigned long total, int16_t from, int16_t to) {
   if (total == 0) {
     return to;
@@ -32,17 +34,19 @@ static int16_t mapProgress(unsigned long elapsed, unsigned long total, int16_t f
 }
 
 void ShipDisplay::begin() {
+  // Inicializa SPI y el driver de la TFT.
   SPI.begin(TFT_SCLK, -1, TFT_MOSI, TFT_CS);
   pinMode(TFT_RST, OUTPUT);
   digitalWrite(TFT_RST, HIGH);
   delay(10);
 
   tft.initR(INITR_BLACKTAB);
-  tft.setRotation(1); // rotate 90 degrees to landscape
+  tft.setRotation(1); // rota 90 grados para modo horizontal
   tft.fillScreen(ST77XX_BLACK);
 }
 
-void ShipDisplay::drawStaticLayout() {
+void ShipDisplay::drawStaticLayout(const char *algoLabel) {
+  // Dibuja los elementos estaticos (encabezado, paneles laterales y canal).
   tft.fillScreen(ST77XX_BLACK);
 
   tft.fillRect(0, 0, SCREEN_W, HEADER_H, SHIP_NAVY);
@@ -50,7 +54,8 @@ void ShipDisplay::drawStaticLayout() {
   tft.setTextSize(1);
   tft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
   tft.setCursor(8, 4);
-  tft.print("Scheduling Ships - FCFS");
+  tft.print("Scheduling Ships - ");
+  tft.print(algoLabel ? algoLabel : "?");
 
   tft.fillRect(0, HEADER_H, SIDE_PANEL_W, CANAL_H, ST77XX_BLACK);
   tft.fillRect(CANAL_X, HEADER_H, CANAL_W, CANAL_H, 0x18E3);
@@ -72,6 +77,7 @@ void ShipDisplay::drawStaticLayout() {
 }
 
 void ShipDisplay::drawBoatSquare(int16_t x, int16_t y, const Boat &boat, bool highlight) {
+  // Dibuja el icono del barco con resaltado opcional.
   uint16_t color = boatColor(boat.type);
   tft.fillRect(x, y, BOAT_SIZE, BOAT_SIZE, color);
   tft.drawRect(x, y, BOAT_SIZE, BOAT_SIZE, highlight ? ST77XX_WHITE : SHIP_DARK_GREY);
@@ -81,6 +87,7 @@ void ShipDisplay::drawBoatSquare(int16_t x, int16_t y, const Boat &boat, bool hi
 }
 
 void ShipDisplay::drawWaitingSide(const ShipScheduler &scheduler, BoatSide side) {
+  // Renderiza los barcos en espera para un lado especifico.
   int16_t panelX = side == SIDE_LEFT ? PANEL_INSET_X : (SCREEN_W - SIDE_PANEL_W + PANEL_INSET_X);
   tft.fillRect(panelX - 1, WAIT_AREA_Y - 2, BOAT_SIZE + 4, CANAL_H - 18, ST77XX_BLACK);
 
@@ -107,6 +114,7 @@ void ShipDisplay::drawWaitingSide(const ShipScheduler &scheduler, BoatSide side)
 }
 
 void ShipDisplay::drawActiveBoat(const ShipScheduler &scheduler) {
+  // Renderiza el barco que esta cruzando el canal en este momento.
   tft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, 0x18E3);
   tft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, 12, ST77XX_BLACK);
 
@@ -145,12 +153,13 @@ void ShipDisplay::drawActiveBoat(const ShipScheduler &scheduler) {
     tft.print('s');
     tft.setTextWrap(true);
   } else {
-    // clear info strip when no active boat
+    // Limpia la franja de informacion cuando no hay barco activo.
     tft.fillRect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, 0x18E3);
   }
 }
 
 void ShipDisplay::drawStatistics(const ShipScheduler &scheduler) {
+  // Conteos de barcos completados en el pie de pantalla.
   tft.fillRect(0, FOOTER_Y, SCREEN_W, FOOTER_H, SHIP_NAVY);
   tft.setTextColor(ST77XX_GREEN, ST77XX_BLACK);
   tft.setCursor(4, FOOTER_Y + 3);
@@ -162,8 +171,11 @@ void ShipDisplay::drawStatistics(const ShipScheduler &scheduler) {
 }
 
 void ShipDisplay::render(const ShipScheduler &scheduler) {
-  if (!layoutDrawn) {
-    drawStaticLayout();
+  // Redibuja el cuadro completo (y el diseno si cambia el algoritmo).
+  ShipScheduler::Algo currentAlgo = scheduler.getAlgorithm();
+  if (!layoutDrawn || currentAlgo != lastAlgorithm) {
+    drawStaticLayout(scheduler.getAlgorithmLabel());
+    lastAlgorithm = currentAlgo;
   }
 
   drawActiveBoat(scheduler);
@@ -173,6 +185,7 @@ void ShipDisplay::render(const ShipScheduler &scheduler) {
 }
 
 void ShipDisplay::renderIfNeeded(const ShipScheduler &scheduler) {
+  // Limita el refresco para reducir parpadeo y carga de CPU.
   if (millis() - lastUiRefresh < UI_REFRESH_MS) {
     return;
   }

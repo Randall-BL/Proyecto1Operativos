@@ -2,8 +2,8 @@
 
 ## Calendarizadores
 - [x] FCFS
-- [ ] Round Robin
-- [ ] Prioridad
+- [x] Round Robin
+- [x] Prioridad
 - [ ] SJF
 - [x] STRN
 - [x] EDF
@@ -49,7 +49,7 @@
 - [ ] Validación de parámetros
 
 ## Testing
-- [ ] Test de cada scheduler
+- [x] Test de cada scheduler
 - [ ] Test de algoritmos flujo
 - [ ] Test de colisiones
 - [ ] Test de sensor
@@ -58,7 +58,6 @@
 ## Documentación
 - [ ] IEEE-Trans (5 páginas max)
 - [ ] README.md
-- [ ] Comentarios en código
 
 ## Entrega
 - [ ] Código compilable
