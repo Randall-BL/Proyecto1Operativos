@@ -1,8 +1,13 @@
-#pragma once
+#pragma once // Evita inclusiones duplicadas. 
 
-#include <Arduino.h>
+#ifdef __cplusplus // Habilita linkage C para C++. 
+extern "C" { // Inicio del bloque con nombres C. 
+#endif // Fin de compatibilidad C++. 
 
-#include "ShipScheduler.h"
+#include "ShipScheduler.h" // Necesario para ShipScheduler. 
 
-// Lee una linea desde Serial y la despacha al scheduler como comando.
-void processSerialInput(ShipScheduler &scheduler);
+void process_serial_command(ShipScheduler *scheduler, const char *command); // Procesa una linea de comando. 
+
+#ifdef __cplusplus // Cierra el bloque de linkage C. 
+} // Fin de extern "C". 
+#endif // Fin de compatibilidad C++. 

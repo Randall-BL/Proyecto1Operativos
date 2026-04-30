@@ -1,64 +1,82 @@
-#pragma once
+#pragma once // Evita inclusiones duplicadas del header. 
 
-#include <Arduino.h>
+#ifdef __cplusplus // Habilita linkage C para C++. 
+extern "C" { // Inicio del bloque con nombres C. 
+#endif // Fin de la directiva de compatibilidad C++. 
 
-// Tipos de barco usados para derivar velocidad y prioridad.
-enum BoatType : uint8_t {
-  BOAT_NORMAL,
-  BOAT_PESQUERA,
-  BOAT_PATRULLA
-};
+// Cabecera base para usar el modelo tanto desde C como desde C++. 
+#include <stdint.h> // Tipos enteros de ancho fijo. 
+// Necesario para el tipo bool en C puro. 
+#include <stdbool.h> // Booleanos en C. 
+// Tipos y manejo de tareas de FreeRTOS. 
+#include <freertos/FreeRTOS.h> // Tipos base FreeRTOS. 
+// Declaracion del handle de tarea. 
+#include <freertos/task.h> // TaskHandle_t y API de tareas. 
 
-// Lado de origen del canal.
-enum BoatSide : uint8_t {
-  SIDE_LEFT,
-  SIDE_RIGHT
-};
+// Declaracion explicita de millis para no depender de Arduino.h en C. 
+extern unsigned long millis(void); // Devuelve el tiempo en ms desde el arranque. 
+// Declaracion explicita de delay para no depender de Arduino.h en C. 
+extern void delay(unsigned long ms); // Espera activa por ms. 
 
-// Estados del ciclo de vida del barco.
-enum BoatState : uint8_t {
-  STATE_WAITING,
-  STATE_CROSSING,
-  STATE_DONE
-};
+// Tipo de barco; cada valor define un perfil distinto de servicio. 
+typedef enum BoatType { // Enumeracion de tipos de barco. 
+  BOAT_NORMAL, // Barco normal con tiempo medio. 
+  BOAT_PESQUERA, // Barco pesquero con tiempo menor. 
+  BOAT_PATRULLA // Barco patrulla con tiempo mas corto. 
+} BoatType; // Alias del enum de tipos. 
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
+// Lado del canal desde donde entra el barco. 
+typedef enum BoatSide { // Enumeracion del lado de entrada. 
+  SIDE_LEFT, // Lado izquierdo del canal. 
+  SIDE_RIGHT // Lado derecho del canal. 
+} BoatSide; // Alias del enum de lados. 
 
-// Datos de ejecucion para cada tarea de barco.
-struct Boat {
-  uint8_t id;                 // Identificador unico del barco.
-  BoatType type;              // Tipo de barco (define velocidad/servicio).
-  BoatSide origin;            // Lado de origen del canal.
-  uint8_t priority;           // Prioridad para algoritmo de prioridad.
-  unsigned long arrivalOrder; // Orden de llegada para desempate FCFS.
-  unsigned long serviceMillis; // Tiempo total de servicio/cruce.
-  unsigned long startedAt;    // Momento en que inicio a cruzar.
-  unsigned long enqueuedAt;   // Momento en que entro a la cola.
-  BoatState state;            // Estado actual del barco.
+// Estado de vida del barco dentro del scheduler. 
+typedef enum BoatState { // Enumeracion de estados del barco. 
+  STATE_WAITING, // En espera en cola. 
+  STATE_CROSSING, // Cruzando el canal. 
+  STATE_DONE // Cruzado y finalizado. 
+} BoatState; // Alias del enum de estados. 
 
-  // Integracion con FreeRTOS.
-  TaskHandle_t taskHandle;     // Handle de la tarea que ejecuta al barco.
-  volatile bool allowedToMove; // Legado; ahora se usan notificaciones.
-  unsigned long remainingMillis; // Tiempo restante de servicio.
-  unsigned long deadlineMillis;  // Deadline absoluta en millis.
-  bool cancelled;              // Marca de cancelacion para cleanup.
-};
+// Estructura principal que representa un barco y su estado de ejecucion. 
+typedef struct Boat { // Definicion de la estructura Boat. 
+  uint8_t id; // Identificador unico del barco. 
+  BoatType type; // Tipo funcional del barco. 
+  BoatSide origin; // Lado de origen en el canal. 
+  uint8_t priority; // Prioridad usada por el algoritmo de prioridad. 
+  unsigned long arrivalOrder; // Orden de llegada para desempates FCFS. 
+  unsigned long serviceMillis; // Tiempo total que requiere para cruzar. 
+  unsigned long startedAt; // Marca temporal de inicio de cruce. 
+  unsigned long enqueuedAt; // Marca temporal de entrada a cola. 
+  BoatState state; // Estado actual del barco. 
+  TaskHandle_t taskHandle; // Handle de la tarea FreeRTOS asociada. 
+  volatile bool allowedToMove; // Bandera de compatibilidad para pausa/reanudacion. 
+  unsigned long remainingMillis; // Tiempo restante estimado. 
+  unsigned long deadlineMillis; // Deadline absoluto para EDF. 
+  bool cancelled; // Marca de cancelacion para limpieza segura. 
+} Boat; // Alias del tipo Boat. 
 
-// Limites globales y ritmo de refresco de la interfaz.
-constexpr uint8_t MAX_BOATS = 16;
-constexpr uint8_t VISIBLE_QUEUE = 6;
-constexpr unsigned long UI_REFRESH_MS = 200;
-constexpr unsigned long CROSSING_MARGIN_MS = 250;
+// Cantidad maxima de barcos permitidos en memoria. 
+#define MAX_BOATS 16 // Limite superior de barcos simultaneos. 
+// Cantidad de barcos visibles por lado en la pantalla. 
+#define VISIBLE_QUEUE 6 // Maximo visible por lado. 
+// Periodo minimo de refresco visual. 
+#define UI_REFRESH_MS 200UL // Periodo de refresco en ms. 
+// Margen adicional para simular el cruce completo. 
+#define CROSSING_MARGIN_MS 250UL // Margen extra en ms. 
 
-// Helpers de presentacion y constructores de barcos.
-const char *boatTypeName(BoatType type);
-const char *boatSideName(BoatSide side);
-const char *boatTypeShort(BoatType type);
-uint16_t boatColor(BoatType type);
-unsigned long serviceTimeForType(BoatType type);
-uint8_t defaultPriorityForType(BoatType type);
-void resetBoatSequence();
-Boat *createBoat(BoatSide origin, BoatType type);
-Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority);
-void destroyBoat(Boat *b);
+// Helpers de texto y construccion de barcos. 
+const char *boatTypeName(BoatType type); // Nombre largo del tipo. 
+const char *boatSideName(BoatSide side); // Nombre corto del lado. 
+const char *boatTypeShort(BoatType type); // Etiqueta de un caracter. 
+uint16_t boatColor(BoatType type); // Color RGB565 asociado. 
+unsigned long serviceTimeForType(BoatType type); // Tiempo base por tipo. 
+uint8_t defaultPriorityForType(BoatType type); // Prioridad base por tipo. 
+void resetBoatSequence(void); // Reinicia los contadores. 
+Boat *createBoat(BoatSide origin, BoatType type); // Crea un barco con prioridad base. 
+Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority); // Crea un barco con prioridad explicita. 
+void destroyBoat(Boat *b); // Libera memoria de un barco. 
+
+#ifdef __cplusplus // Cierra el bloque de linkage C. 
+} // Fin de extern "C". 
+#endif // Fin de compatibilidad C++. 
