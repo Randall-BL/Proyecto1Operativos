@@ -19,12 +19,11 @@
 ## Barcos
 - [x] Tipos: Normal, Pesquera, Patrulla
 - [x] Generación por carga predefinida
-- [ ] Generación por botones
 
 ## Interrupciones
-- [ ] Sensor de proximidad
-- [ ] Cerrado de compuertas
-- [ ] Re-queueing en emergencia
+- [x] Sensor de proximidad
+- [x] Cerrado de compuertas
+- [x] Re-queueing en emergencia
 
 ## ESP32 + LCD
 - [ ] Setup I2C y LCD

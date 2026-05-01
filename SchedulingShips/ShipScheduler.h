@@ -21,6 +21,13 @@ typedef enum ShipFlowMode { // Modo de control de flujo del canal.
   FLOW_SIGN = 2 // Letrero por tiempo.
 } ShipFlowMode; // Alias del enum de flujo.
 
+typedef enum ShipEmergencyMode { // Estados de emergencia del canal.
+  EMERGENCY_NONE = 0, // Sin emergencia.
+  EMERGENCY_PROXIMITY_ALERT = 1, // Alerta de proximidad activada.
+  EMERGENCY_GATES_CLOSED = 2, // Compuertas cerradas.
+  EMERGENCY_RECOVERY = 3 // En recuperacion de emergencia.
+} ShipEmergencyMode; // Alias del enum de emergencia.
+
 typedef struct ShipScheduler { // Estructura con el estado del scheduler. 
   Boat *readyQueue[MAX_BOATS]; // Cola de listos (punteros). 
   uint8_t readyCount; // Cantidad de barcos listos. 
@@ -50,6 +57,15 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint16_t boatSpeedMetersPerSec; // Velocidad base del barco.
   uint16_t collisionDetections; // Contador de colisiones detectadas.
   bool flowLoggingEnabled; // Habilita trazas de decisiones de flujo.
+  // Sensor de proximidad e interrupciones
+  bool sensorActive; // Sensor habilitado/deshabilitado.
+  uint16_t proximityThresholdCm; // Distancia umbral de alerta en cm.
+  uint16_t proximityCurrentDistanceCm; // Distancia actual medida/simulada.
+  ShipEmergencyMode emergencyMode; // Estado actual de emergencia.
+  unsigned long emergencyStartedAt; // Marca de inicio de la emergencia.
+  uint8_t gateLeftClosed; // Estado puerta izquierda (0=abierta, 1=cerrando, 2=cerrada).
+  uint8_t gateRightClosed; // Estado puerta derecha (0=abierta, 1=cerrando, 2=cerrada).
+  uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
 } ShipScheduler; // Alias del tipo scheduler. 
 
 void ship_scheduler_begin(ShipScheduler *scheduler); // Inicializa el scheduler. 
@@ -100,6 +116,18 @@ void ship_scheduler_notify_boat_finished(ShipScheduler *scheduler, Boat *b); // 
 void ship_scheduler_pause_active(ShipScheduler *scheduler); // Pausa el barco activo. 
 void ship_scheduler_resume_active(ShipScheduler *scheduler); // Reanuda el barco activo. 
 void ship_scheduler_dump_status(const ShipScheduler *scheduler); // Imprime el estado por Serial. 
+
+// Sensor de proximidad e interrupciones
+void ship_scheduler_set_sensor_enabled(ShipScheduler *scheduler, bool enabled); // Habilita/deshabilita sensor.
+bool ship_scheduler_get_sensor_enabled(const ShipScheduler *scheduler); // Lee estado del sensor.
+void ship_scheduler_set_proximity_threshold(ShipScheduler *scheduler, uint16_t cm); // Ajusta umbral en cm.
+uint16_t ship_scheduler_get_proximity_threshold(const ShipScheduler *scheduler); // Lee umbral en cm.
+void ship_scheduler_set_proximity_distance(ShipScheduler *scheduler, uint16_t cm); // Ajusta distancia actual (simulada).
+uint16_t ship_scheduler_get_proximity_distance(const ShipScheduler *scheduler); // Lee distancia actual.
+ShipEmergencyMode ship_scheduler_get_emergency_mode(const ShipScheduler *scheduler); // Lee modo de emergencia.
+void ship_scheduler_trigger_emergency(ShipScheduler *scheduler); // Activa emergencia por proximidad.
+void ship_scheduler_clear_emergency(ShipScheduler *scheduler); // Limpia el estado de emergencia.
+void ship_scheduler_update_emergency(ShipScheduler *scheduler); // Actualiza estado de emergencia (llamar en tick).
 
 extern ShipScheduler *gScheduler; // Puntero global para callbacks de tareas. 
 

@@ -146,6 +146,15 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   scheduler->fairnessCurrentSide = SIDE_LEFT; // Lado inicial de equidad.
   scheduler->fairnessPassedInWindow = 0; // Reinicia ventana de equidad.
   scheduler->collisionDetections = 0; // Reinicia contador de colisiones.
+  // Inicializa sensor e interrupciones
+  scheduler->sensorActive = false; // Sensor deshabilitado por defecto.
+  scheduler->proximityThresholdCm = 150; // Umbral de 150cm por defecto.
+  scheduler->proximityCurrentDistanceCm = 999; // Distancia inicial "lejana".
+  scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.
+  scheduler->emergencyStartedAt = 0; // Sin timestamp.
+  scheduler->gateLeftClosed = 0; // Puerta izquierda abierta.
+  scheduler->gateRightClosed = 0; // Puerta derecha abierta.
+  scheduler->gateLockDurationMs = 5000; // Cierre de 5 segundos por defecto.
   ship_scheduler_clear(scheduler); // Limpia estado. 
   gScheduler = scheduler; // Registra global. 
 } // Fin de ship_scheduler_begin. 
@@ -325,6 +334,54 @@ bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler) { // Lee tr
   if (!scheduler) return false; // Retorna default.
   return scheduler->flowLoggingEnabled; // Retorna estado.
 } // Fin de ship_scheduler_get_flow_logging.
+
+void ship_scheduler_set_sensor_enabled(ShipScheduler *scheduler, bool enabled) { // Habilita/deshabilita sensor.
+  if (!scheduler) return; // Valida puntero.
+  scheduler->sensorActive = enabled; // Aplica valor.
+  if (enabled) {
+    ship_logln("[SENSOR] Sensor de proximidad activado");
+  } else {
+    ship_logln("[SENSOR] Sensor de proximidad desactivado");
+  }
+} // Fin de ship_scheduler_set_sensor_enabled.
+
+bool ship_scheduler_get_sensor_enabled(const ShipScheduler *scheduler) { // Lee estado del sensor.
+  if (!scheduler) return false; // Retorna default.
+  return scheduler->sensorActive; // Retorna estado.
+} // Fin de ship_scheduler_get_sensor_enabled.
+
+void ship_scheduler_set_proximity_threshold(ShipScheduler *scheduler, uint16_t cm) { // Ajusta umbral en cm.
+  if (!scheduler) return; // Valida puntero.
+  if (cm < 10) cm = 10; // Minimo 10cm.
+  if (cm > 500) cm = 500; // Maximo 500cm.
+  scheduler->proximityThresholdCm = cm; // Aplica umbral.
+  ship_logf("[SENSOR] Umbral de proximidad ajustado a %u cm\n", cm);
+} // Fin de ship_scheduler_set_proximity_threshold.
+
+uint16_t ship_scheduler_get_proximity_threshold(const ShipScheduler *scheduler) { // Lee umbral en cm.
+  if (!scheduler) return 150; // Retorna default.
+  return scheduler->proximityThresholdCm; // Retorna umbral.
+} // Fin de ship_scheduler_get_proximity_threshold.
+
+void ship_scheduler_set_proximity_distance(ShipScheduler *scheduler, uint16_t cm) { // Ajusta distancia actual (simulada).
+  if (!scheduler) return; // Valida puntero.
+  scheduler->proximityCurrentDistanceCm = cm; // Aplica distancia.
+  // Verifica si se activa la emergencia por proximidad
+  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm < scheduler->proximityThresholdCm) {
+    ship_logf("[SENSOR] ALERTA: Barco a %u cm (umbral: %u cm)\n", cm, scheduler->proximityThresholdCm);
+    ship_scheduler_trigger_emergency(scheduler);
+  }
+} // Fin de ship_scheduler_set_proximity_distance.
+
+uint16_t ship_scheduler_get_proximity_distance(const ShipScheduler *scheduler) { // Lee distancia actual.
+  if (!scheduler) return 999; // Retorna default "lejano".
+  return scheduler->proximityCurrentDistanceCm; // Retorna distancia.
+} // Fin de ship_scheduler_get_proximity_distance.
+
+ShipEmergencyMode ship_scheduler_get_emergency_mode(const ShipScheduler *scheduler) { // Lee modo de emergencia.
+  if (!scheduler) return EMERGENCY_NONE; // Retorna default.
+  return scheduler->emergencyMode; // Retorna modo actual.
+} // Fin de ship_scheduler_get_emergency_mode.
 
 static int findIndexForAlgo(ShipAlgo algo, Boat *readyQueue[], uint8_t readyCount) { // Selecciona indice segun algoritmo. 
   return findIndexForAlgoAndSide(algo, readyQueue, readyCount, false, SIDE_LEFT); // Delega selector sin filtro de lado.
@@ -553,6 +610,7 @@ static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler) { // Fin
 void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de planificacion. 
   if (!scheduler) return; // Valida puntero. 
 
+  ship_scheduler_update_emergency(scheduler); // Actualiza estado de emergencia.
   ship_scheduler_tick_sign(scheduler); // Actualiza cambio de direccion para modo letrero.
 
   if (scheduler->hasActiveBoat && scheduler->activeBoat) { // Si hay activo. 
@@ -682,6 +740,89 @@ void ship_scheduler_resume_active(ShipScheduler *scheduler) { // Reanuda el barc
     ship_logln("No hay barco activo para reanudar."); // Mensaje de error. 
   } 
 } // Fin de ship_scheduler_resume_active. 
+
+void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emergencia por proximidad.
+  if (!scheduler) return; // Valida puntero.
+  
+  scheduler->emergencyMode = EMERGENCY_PROXIMITY_ALERT; // Marca alerta.
+  scheduler->emergencyStartedAt = millis(); // Registra timestamp.
+  
+  ship_logln("[EMERGENCY] ¡¡¡ ALERTA DE PROXIMIDAD !!!"); // Alerta loudly.
+  ship_logln("[EMERGENCY] Cerrando compuertas..."); // Aviso de cierre.
+  
+  // Cierra puertas (simulado)
+  scheduler->gateLeftClosed = 2; // Puerta izquierda cerrada (inmediatamente en simulacion).
+  scheduler->gateRightClosed = 2; // Puerta derecha cerrada.
+  scheduler->emergencyMode = EMERGENCY_GATES_CLOSED; // Marca puertas cerradas.
+  
+  ship_logln("[EMERGENCY] Compuertas CERRADAS"); // Confirma cierre.
+  
+  // Remueve barco activo y lo vuelve a encolar
+  if (scheduler->hasActiveBoat && scheduler->activeBoat) {
+    Boat *activeBoat = scheduler->activeBoat; // Copia referencia.
+    ship_logf("[EMERGENCY] Removiendo barco #%u del canal\n", activeBoat->id); // Aviso.
+    
+    // Termina tarea del barco activo
+    activeBoat->cancelled = true; // Marca como cancelado.
+    if (activeBoat->taskHandle) {
+      xTaskNotify(activeBoat->taskHandle, NOTIF_CMD_TERMINATE, eSetValueWithOverwrite); // Ordena terminar.
+    }
+    
+    scheduler->hasActiveBoat = false; // Limpia estado.
+    scheduler->activeBoat = NULL; // Limpia puntero.
+    scheduler->crossingStartedAt = 0; // Reinicia timestamp.
+    
+    // Reencola el barco
+    if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
+      activeBoat->cancelled = false; // Limpia flag de cancelacion.
+      activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia servicio.
+      activeBoat->state = STATE_WAITING; // Marca como esperando.
+      scheduler->readyQueue[scheduler->readyCount] = activeBoat; // Agrega a cola.
+      scheduler->readyCount++; // Incrementa contador.
+      ship_logf("[EMERGENCY] Barco #%u reencola en posicion %u\n", activeBoat->id, scheduler->readyCount - 1); // Confirma reencolado.
+    } else {
+      ship_logf("[EMERGENCY] Cola llena: barco #%u no puede ser reencolado, se destruye\n", activeBoat->id); // Error: cola llena.
+      destroyBoat(activeBoat); // Destruye barco si no cabe.
+    }
+  }
+  
+  scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
+  ship_logln("[EMERGENCY] Modo: RECOVERY (esperando apertura de compuertas)"); // Log estado.
+} // Fin de ship_scheduler_trigger_emergency.
+
+void ship_scheduler_clear_emergency(ShipScheduler *scheduler) { // Limpia el estado de emergencia.
+  if (!scheduler) return; // Valida puntero.
+  
+  if (scheduler->emergencyMode != EMERGENCY_NONE) {
+    ship_logln("[EMERGENCY] Limpiando estado de emergencia..."); // Aviso.
+    scheduler->gateLeftClosed = 0; // Abre puerta izquierda.
+    scheduler->gateRightClosed = 0; // Abre puerta derecha.
+    ship_logln("[EMERGENCY] Compuertas ABIERTAS"); // Confirma apertura.
+  }
+  
+  scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.
+  scheduler->emergencyStartedAt = 0; // Limpia timestamp.
+  ship_logln("[EMERGENCY] Estado: NORMAL"); // Log retorno a normal.
+} // Fin de ship_scheduler_clear_emergency.
+
+void ship_scheduler_update_emergency(ShipScheduler *scheduler) { // Actualiza estado de emergencia (llamar en tick).
+  if (!scheduler) return; // Valida puntero.
+  
+  // Si el sensor esta activo, revisa la distancia actual
+  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE) {
+    if (scheduler->proximityCurrentDistanceCm < scheduler->proximityThresholdCm) {
+      ship_scheduler_trigger_emergency(scheduler); // Activa emergencia.
+    }
+  }
+  
+  // Si estamos en recuperacion, espera a que pase el tiempo antes de limpiar
+  if (scheduler->emergencyMode == EMERGENCY_RECOVERY) {
+    unsigned long elapsedMs = millis() - scheduler->emergencyStartedAt;
+    if (elapsedMs >= scheduler->gateLockDurationMs) {
+      ship_scheduler_clear_emergency(scheduler); // Limpia emergencia tras timeout.
+    }
+  }
+} // Fin de ship_scheduler_update_emergency.
 
 void ship_scheduler_dump_status(const ShipScheduler *scheduler) { // Imprime estado del scheduler. 
   if (!scheduler) return; // Valida puntero. 

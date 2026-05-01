@@ -38,6 +38,8 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     ship_logln("          alg <fcfs|sjf|strn|edf|rr|prio> [ms]"); // Lista alg. 
     ship_logln("          flow <tico|fair|sign> | w <n> | sign <l|r> | signms <ms>"); // Lista flujo.
     ship_logln("          flowlog <on|off>"); // Trazas de flujo.
+    ship_logln("          sensor <activate|deactivate|threshold|simulate> [param]"); // Sensor.
+    ship_logln("          emergency <clear>"); // Emergencias.
     ship_logln("          chanlen <m> | boatspeed <mps> | readymax <n>"); // Lista canal.
     ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf|flow]"); // Lista tests. 
     return; // Termina. 
@@ -112,6 +114,57 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     bool enabled = !(strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0); // Interpreta valor.
     ship_scheduler_set_flow_logging(scheduler, enabled); // Aplica trazas.
     ship_logf("FlowLog: %s\n", ship_scheduler_get_flow_logging(scheduler) ? "ON" : "OFF"); // Confirma estado.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "sensor ")) { // Comando sensor de proximidad.
+    char *arg = cursor + 7; // Salta prefijo.
+    trim_left(&arg); // Limpia espacios.
+    char *spaceAt = strchr(arg, ' '); // Busca separador.
+    char *subcommand = arg; // Subcomando.
+    char *param = ""; // Parametro opcional.
+    if (spaceAt) { // Si hay parametro.
+      *spaceAt = '\0'; // Corta el subcomando.
+      param = spaceAt + 1; // Apunta al parametro.
+      trim_left(&param); // Limpia el parametro.
+    }
+    
+    if (strcmp(subcommand, "activate") == 0) { // Activa sensor.
+      ship_scheduler_set_sensor_enabled(scheduler, true); // Habilita sensor.
+      ship_logln("[SENSOR] Sensor ACTIVADO"); // Confirma.
+    } else if (strcmp(subcommand, "deactivate") == 0) { // Desactiva sensor.
+      ship_scheduler_set_sensor_enabled(scheduler, false); // Deshabilita sensor.
+      ship_logln("[SENSOR] Sensor DESACTIVADO"); // Confirma.
+    } else if (strcmp(subcommand, "threshold") == 0) { // Configura umbral.
+      unsigned long thresholdCm = strtoul(param, NULL, 10); // Convierte a numero.
+      if (thresholdCm == 0) { // Si es cero.
+        ship_logln("Uso: sensor threshold <cm>"); // Muestra ayuda.
+      } else {
+        ship_scheduler_set_proximity_threshold(scheduler, (uint16_t)thresholdCm); // Aplica umbral.
+      }
+    } else if (strcmp(subcommand, "simulate") == 0) { // Simula distancia.
+      unsigned long distanceCm = strtoul(param, NULL, 10); // Convierte a numero.
+      if (param[0] == '\0') { // Si no hay parametro.
+        ship_logln("Uso: sensor simulate <cm>"); // Muestra ayuda.
+      } else {
+        ship_logf("[SENSOR] Simulando distancia: %lu cm\n", distanceCm); // Aviso.
+        ship_scheduler_set_proximity_distance(scheduler, (uint16_t)distanceCm); // Simula distancia.
+      }
+    } else { // Subcomando desconocido.
+      ship_logln("Uso: sensor <activate|deactivate|threshold|simulate> [param]"); // Ayuda.
+    }
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "emergency ")) { // Comando control de emergencia.
+    char *arg = cursor + 10; // Salta prefijo.
+    trim_left(&arg); // Limpia espacios.
+    if (strcmp(arg, "clear") == 0) { // Limpia emergencia.
+      ship_scheduler_clear_emergency(scheduler); // Limpia estado.
+      ship_logln("[EMERGENCY] Emergencia CANCELADA"); // Confirma.
+    } else { // Opcion invalida.
+      ship_logln("Uso: emergency <clear>"); // Ayuda.
+    }
     return; // Termina.
   }
 

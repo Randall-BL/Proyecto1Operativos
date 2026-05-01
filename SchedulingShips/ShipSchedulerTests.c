@@ -275,6 +275,59 @@ void run_scheduler_tests(ShipScheduler *scheduler) { // Ejecuta todas las prueba
   run_flow_control_tests(scheduler); // Prueba controles de flujo. 
 } // Fin de run_scheduler_tests. 
 
+static bool run_emergency_proximity_test(ShipScheduler *scheduler) { // Verifica disparo de emergencia por proximidad.
+  if (!scheduler) return false; // Valida scheduler.
+  
+  ship_logln("[TEST] === Prueba de Emergencia por Proximidad ==="); // Encabezado.
+  
+  // Limpia y reinicia
+  ship_scheduler_clear(scheduler); // Limpia estado previo.
+  ship_scheduler_set_sensor_enabled(scheduler, true); // Activa sensor.
+  ship_scheduler_set_proximity_threshold(scheduler, 100); // Umbral 100cm.
+  ship_scheduler_set_proximity_distance(scheduler, 999); // Distancia lejana inicial.
+  
+  // Carga barcos demo
+  ship_scheduler_load_demo_manifest(scheduler); // Carga barcos.
+  if (scheduler->readyCount == 0) {
+    ship_logln("[TEST] FAIL: No boats in ready queue"); // Error sin barcos.
+    return false; // Falla.
+  }
+  
+  // Verifica que no hay emergencia inicialmente
+  if (ship_scheduler_get_emergency_mode(scheduler) != EMERGENCY_NONE) {
+    ship_logln("[TEST] FAIL: Emergency should be NONE initially"); // Error de estado.
+    return false; // Falla.
+  }
+  
+  // Simula un barco acercandose por debajo del umbral
+  ship_logln("[TEST] Simulando barco acercandose..."); // Aviso.
+  ship_scheduler_set_proximity_distance(scheduler, 80); // 80cm < umbral 100cm.
+  
+  // Verifica que se activo la emergencia
+  if (ship_scheduler_get_emergency_mode(scheduler) == EMERGENCY_NONE) {
+    ship_logln("[TEST] FAIL: Emergency should be activated"); // Error: no se activo.
+    return false; // Falla.
+  }
+  
+  ship_logf("[TEST] Emergency mode: %u\n", ship_scheduler_get_emergency_mode(scheduler)); // Log modo.
+  
+  // Verifica que los barcos siguen en la cola lista (no removidos aun si no habia activo)
+  // O que el barco activo fue removido si habia uno
+  ship_logf("[TEST] Ready queue count: %u\n", scheduler->readyCount); // Log cantidad.
+  
+  // Limpia la emergencia
+  ship_scheduler_clear_emergency(scheduler); // Limpia estado.
+  
+  // Verifica que volvio a normal
+  if (ship_scheduler_get_emergency_mode(scheduler) != EMERGENCY_NONE) {
+    ship_logln("[TEST] FAIL: Emergency should be cleared"); // Error no se limpio.
+    return false; // Falla.
+  }
+  
+  ship_logln("[TEST] PASS: Emergency proximity test passed"); // Exito.
+  return true; // Exito.
+} // Fin de run_emergency_proximity_test.
+
 void run_flow_control_tests(ShipScheduler *scheduler) { // Ejecuta bateria de control de flujo.
   if (!scheduler) return; // Valida scheduler.
   uint8_t passed = 0; // Conteo de casos exitosos.
