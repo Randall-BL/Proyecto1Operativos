@@ -1,23 +1,24 @@
 # Scheduling Ships - To-Do List
 
 ## Calendarizadores
-- [ ] FCFS
-- [ ] Round Robin
-- [ ] Prioridad
+- [x] FCFS
+- [x] Round Robin
+- [x] Prioridad
 - [ ] SJF
-- [ ] STRN
-- [ ] EDF
+- [x] STRN
+- [x] EDF
+
 
 ## Canal y Control de Flujo
 - [ ] Equidad (W parameter)
 - [ ] Letrero (dirección alternante)
 - [ ] Tico (sin control)
 - [ ] Detección de colisiones
-- [ ] Movimiento de barcos
+- [x] Movimiento de barcos
 
 ## Barcos
-- [ ] Tipos: Normal, Pesquera, Patrulla
-- [ ] Generación por carga predefinida
+- [x] Tipos: Normal, Pesquera, Patrulla
+- [x] Generación por carga predefinida
 - [ ] Generación por botones
 
 ## Interrupciones
@@ -27,18 +28,20 @@
 
 ## ESP32 + LCD
 - [ ] Setup I2C y LCD
-- [ ] Pantalla estado canal
+- [x] Pantalla estado canal
 - [ ] Pantalla detalles barcos
 - [ ] Pantalla estadísticas
 - [ ] Pantalla configuración
 - [ ] Botones de entrada
+- [x] Pantalla en horizontal
 
 ## FreeRTOS
-- [ ] Task scheduler
+- [x] Task scheduler
 - [ ] Task física del canal
 - [ ] Task UI update
-- [ ] Task input handler
+- [x] Task input handler
 - [ ] Mutexes y sincronización
+- [ ] Integración tareas↔scheduler
 
 ## Configuración
 - [ ] Parsear config.txt
@@ -46,7 +49,7 @@
 - [ ] Validación de parámetros
 
 ## Testing
-- [ ] Test de cada scheduler
+- [x] Test de cada scheduler
 - [ ] Test de algoritmos flujo
 - [ ] Test de colisiones
 - [ ] Test de sensor
@@ -55,7 +58,6 @@
 ## Documentación
 - [ ] IEEE-Trans (5 páginas max)
 - [ ] README.md
-- [ ] Comentarios en código
 
 ## Entrega
 - [ ] Código compilable
