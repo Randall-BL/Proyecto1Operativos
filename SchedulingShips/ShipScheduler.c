@@ -542,6 +542,12 @@ static void ship_scheduler_requeue_boat(ShipScheduler *scheduler, Boat *boat, bo
 static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecciona y arranca el siguiente barco. 
   if (!scheduler || scheduler->readyCount == 0) return; // Valida estado. 
 
+  // Bloquea despacho si hay emergencia (puertas cerradas).
+  if (scheduler->emergencyMode != EMERGENCY_NONE) {
+    ship_logln("[EMERGENCY] Despacho bloqueado: puertas cerradas por emergencia");
+    return; // No inicia barco mientras hay emergencia.
+  }
+
   int idx = ship_scheduler_select_next_index(scheduler); // Busca el mejor segun politica completa. 
   if (idx < 0) return; // Sale si no hay indice. 
 
