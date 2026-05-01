@@ -168,55 +168,19 @@ static void drawStatistics(const ShipScheduler *scheduler) { // Render del pie.
   gTft.print(ship_scheduler_get_completed_right_to_left(scheduler)); // Contador der. 
 } 
 
-// Dibuja informacion de sensor, compuertas y modo de emergencia en panel derecho
-static void drawEmergencyInfo(const ShipScheduler *scheduler) {
-  int16_t panelX = SCREEN_W - SIDE_PANEL_W + PANEL_INSET_X; // X del panel derecho.
-  int16_t y = LABEL_Y + 14; // Y inicial para info.
-  gTft.fillRect(SCREEN_W - SIDE_PANEL_W + 1, HEADER_H + 1, SIDE_PANEL_W - 2, CANAL_H - 4, ST77XX_BLACK); // Limpia area del panel.
-
-  // Sensor
-  bool sensorOn = ship_scheduler_get_sensor_enabled(scheduler);
-  uint16_t threshold = ship_scheduler_get_proximity_threshold(scheduler);
-  uint16_t distance = ship_scheduler_get_proximity_distance(scheduler);
-  gTft.setTextColor(sensorOn ? ST77XX_YELLOW : ST77XX_DARKGREY, ST77XX_BLACK);
-  gTft.setCursor(panelX, y);
-  gTft.print("S:");
-  gTft.print(sensorOn ? "ON" : "OFF");
-  y += 10;
-  gTft.setTextColor(ST77XX_WHITE, ST77XX_BLACK);
-  gTft.setCursor(panelX, y);
-  gTft.print("Thr:"); gTft.print(threshold); gTft.print("cm");
-  y += 10;
-  gTft.setCursor(panelX, y);
-  gTft.print("Dist:");
-  if (distance >= 900) gTft.print("--"); else gTft.print(distance); gTft.print("cm");
-  y += 12;
-
-  // Gates
-  gTft.setTextColor(ST77XX_CYAN, ST77XX_BLACK);
-  gTft.setCursor(panelX, y);
-  gTft.print("G L:");
-  uint8_t gl = scheduler->gateLeftClosed;
-  gTft.print(gl == 2 ? "CL" : (gl == 1 ? ".." : "OP"));
-  gTft.print(' ');
-  gTft.print("R:");
-  uint8_t gr = scheduler->gateRightClosed;
-  gTft.print(gr == 2 ? "CL" : (gr == 1 ? ".." : "OP"));
-  y += 12;
-
-  // Emergency mode
-  ShipEmergencyMode em = ship_scheduler_get_emergency_mode(scheduler);
-  gTft.setTextColor(em == EMERGENCY_NONE ? ST77XX_GREEN : ST77XX_RED, ST77XX_BLACK);
-  gTft.setCursor(panelX, y);
-  gTft.print("EM:");
-  switch (em) {
-    case EMERGENCY_NONE: gTft.print("OK"); break;
-    case EMERGENCY_PROXIMITY_ALERT: gTft.print("ALRT"); break;
-    case EMERGENCY_GATES_CLOSED: gTft.print("CLOS"); break;
-    case EMERGENCY_RECOVERY: gTft.print("REC "); break;
-    default: gTft.print("?   "); break;
-  }
+// Dibuja estado de puertas (Abierto/Cerrado) en encabezado.
+static void drawGateStatus(const ShipScheduler *scheduler) {
+  uint8_t leftGate = ship_scheduler_get_gate_left_state(scheduler); // 0=open, 2=closed.
+  uint8_t rightGate = ship_scheduler_get_gate_right_state(scheduler);
+  bool allOpen = (leftGate == 0 && rightGate == 0); // True si ambas abiertas.
+  
+  uint16_t color = allOpen ? ST77XX_GREEN : ST77XX_RED; // Verde si abierto, rojo si cerrado.
+  gTft.setTextColor(color, ST77XX_BLACK);
+  gTft.setCursor(100, 4); // Posicion en encabezado (derecha).
+  gTft.setTextSize(1);
+  gTft.print(allOpen ? "ABIERTO" : "CERRADO");
 }
+
 
 // API C: inicializa la pantalla. 
 void ship_display_begin(void) { // Entrada publica de inicializacion. 
@@ -241,7 +205,7 @@ void ship_display_render(const ShipScheduler *scheduler) { // Entrada publica de
   drawActiveBoat(scheduler); // Dibuja el barco activo. 
   drawWaitingSide(scheduler, SIDE_LEFT); // Dibuja cola izquierda. 
   drawWaitingSide(scheduler, SIDE_RIGHT); // Dibuja cola derecha. 
-  drawEmergencyInfo(scheduler); // Dibuja estado de sensor/compuertas/emergencia.
+  drawGateStatus(scheduler); // Dibuja estado de puertas (Abierto/Cerrado).
   drawStatistics(scheduler); // Dibuja estadisticas. 
 } 
 

@@ -128,6 +128,8 @@ ShipEmergencyMode ship_scheduler_get_emergency_mode(const ShipScheduler *schedul
 void ship_scheduler_trigger_emergency(ShipScheduler *scheduler); // Activa emergencia por proximidad.
 void ship_scheduler_clear_emergency(ShipScheduler *scheduler); // Limpia el estado de emergencia.
 void ship_scheduler_update_emergency(ShipScheduler *scheduler); // Actualiza estado de emergencia (llamar en tick).
+uint8_t ship_scheduler_get_gate_left_state(const ShipScheduler *scheduler); // Obtiene estado puerta izquierda (0=open, 1=closing, 2=closed).
+uint8_t ship_scheduler_get_gate_right_state(const ShipScheduler *scheduler); // Obtiene estado puerta derecha (0=open, 1=closing, 2=closed).
 
 extern ShipScheduler *gScheduler; // Puntero global para callbacks de tareas. 
 

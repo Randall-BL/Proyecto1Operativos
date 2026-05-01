@@ -824,6 +824,16 @@ void ship_scheduler_update_emergency(ShipScheduler *scheduler) { // Actualiza es
   }
 } // Fin de ship_scheduler_update_emergency.
 
+uint8_t ship_scheduler_get_gate_left_state(const ShipScheduler *scheduler) { // Obtiene estado puerta izquierda.
+  if (!scheduler) return 0; // Retorna open si es nulo.
+  return scheduler->gateLeftClosed; // Retorna estado (0=open, 1=closing, 2=closed).
+} // Fin de ship_scheduler_get_gate_left_state.
+
+uint8_t ship_scheduler_get_gate_right_state(const ShipScheduler *scheduler) { // Obtiene estado puerta derecha.
+  if (!scheduler) return 0; // Retorna open si es nulo.
+  return scheduler->gateRightClosed; // Retorna estado (0=open, 1=closing, 2=closed).
+} // Fin de ship_scheduler_get_gate_right_state.
+
 void ship_scheduler_dump_status(const ShipScheduler *scheduler) { // Imprime estado del scheduler. 
   if (!scheduler) return; // Valida puntero. 
   ship_logln("--- Scheduler Status ---"); // Encabezado. 
