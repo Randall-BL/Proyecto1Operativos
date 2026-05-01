@@ -124,8 +124,8 @@ static void drawActiveBoat(const ShipScheduler *scheduler) { // Render del activ
 
   const Boat *activeBoat = ship_scheduler_get_active_boat(scheduler); // Obtiene el barco activo. 
   if (activeBoat != NULL) { // Si hay barco activo. 
-    unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler); // Tiempo transcurrido. 
-    unsigned long remaining = activeBoat->serviceMillis > elapsed ? activeBoat->serviceMillis - elapsed : 0; // Tiempo restante. 
+    unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler); // Progreso real del barco ya resuelto por el scheduler.
+    unsigned long remaining = activeBoat->remainingMillis; // Tiempo restante mostrado en la banda de info. 
 
     int16_t travelStart = activeBoat->origin == SIDE_RIGHT ? CANAL_X + CANAL_W - BOAT_SIZE - 2 : CANAL_X + 2; // X inicial. 
     int16_t travelEnd = activeBoat->origin == SIDE_RIGHT ? CANAL_X + 2 : CANAL_X + CANAL_W - BOAT_SIZE - 2; // X final. 

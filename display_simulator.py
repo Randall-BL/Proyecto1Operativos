@@ -14,6 +14,7 @@ import time
 from collections import deque
 from queue import Queue, Empty
 import re
+import os
 
 class SchedulingShipsDisplay:
     def __init__(self, root, port='COM5', baudrate=115200):
@@ -48,13 +49,19 @@ class SchedulingShipsDisplay:
             'active': False,
         }
 
-        # Tiempos por tipo tomados de SchedulingShips/ShipModel.c (serviceTimeForType)
+        # Tiempos por tipo para la animación visual solamente.
         self.service_time_by_type_ms = {
             'normal': 6500,
             'pesquera': 4500,
             'patrulla': 3000,
         }
 
+        # Intenta cargar los tiempos desde el fichero C para mantener sincronía
+        try:
+            self.load_service_times_from_c()
+        except Exception:
+            # Si falla, mantenemos los valores por defecto
+            pass
         # Cache de tipo por id para enlazar "Start -> barco #N" con el tipo real
         self.boat_type_by_id = {}
 
@@ -292,6 +299,51 @@ class SchedulingShipsDisplay:
         }
         return aliases.get(value, value)
 
+    def load_service_times_from_c(self):
+        """Lee SchedulingShips/ShipModel.c y extrae los valores de serviceTimeForType.
+        Si no se encuentran, no lanza excepción y deja los valores por defecto.
+        """
+        # Ruta relativa al script/raíz del repo
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        candidate = os.path.join(base_dir, 'SchedulingShips', 'ShipModel.c')
+        if not os.path.exists(candidate):
+            # intenta ruta un nivel arriba por si el script se ejecuta desde otro cwd
+            candidate = os.path.join(base_dir, '..', 'SchedulingShips', 'ShipModel.c')
+            candidate = os.path.normpath(candidate)
+            if not os.path.exists(candidate):
+                self.serial_queue.put(("log", f"Aviso: ShipModel.c no encontrado en {candidate}. Usando valores por defecto."))
+                return
+
+        try:
+            with open(candidate, 'r', encoding='utf-8') as f:
+                src = f.read()
+
+            # Busca patrones de retorno para cada case
+            patterns = {
+                'normal': r'case\s+BOAT_NORMAL\s*:\s*return\s+(\d+)\s*;',
+                'pesquera': r'case\s+BOAT_PESQUERA\s*:\s*return\s+(\d+)\s*;',
+                'patrulla': r'case\s+BOAT_PATRULLA\s*:\s*return\s+(\d+)\s*;',
+            }
+            found = {}
+            for k, pat in patterns.items():
+                m = re.search(pat, src)
+                if m:
+                    found[k] = int(m.group(1))
+
+            if found:
+                # Actualiza solamente las entradas encontradas
+                for k, v in found.items():
+                    self.service_time_by_type_ms[k] = v
+                self.serial_queue.put(("log", f"Tiempos de servicio cargados desde ShipModel.c: {found}"))
+            else:
+                self.serial_queue.put(("log", "No se encontraron tiempos en ShipModel.c; usando valores por defecto."))
+
+        except Exception as e:
+            self.serial_queue.put(("log", f"Error leyendo ShipModel.c: {e}. Usando valores por defecto."))
+
+    def queue_for_origin(self, boat_origin):
+        return self.queue_right if boat_origin == 'right' else self.queue_left
+
     def duration_for_boat_type(self, boat_type):
         if not boat_type:
             return 6.5
@@ -301,9 +353,6 @@ class SchedulingShipsDisplay:
         if boat_origin == 'right':
             return 'RL'
         return 'LR'
-
-    def queue_for_origin(self, boat_origin):
-        return self.queue_right if boat_origin == 'right' else self.queue_left
 
     def add_boat_to_queue(self, boat_id, boat_origin, boat_type=None, boat_algorithm=None, front=False):
         boat_origin = self.normalize_boat_origin(boat_origin) or 'left'
@@ -452,8 +501,6 @@ class SchedulingShipsDisplay:
                     if self.crossing['boat_id'] == boat_id:
                         self.state['active_boat'] = None
                         self.crossing['active'] = False
-                        self.crossing['paused'] = False
-                        self.crossing['pause_progress'] = 0.0
                         self.crossing['boat_type'] = None
                         self.crossing['boat_origin'] = None
                         self.crossing['boat_algorithm'] = None
@@ -473,14 +520,12 @@ class SchedulingShipsDisplay:
                         self.crossing['boat_origin'] = None
                         self.crossing['boat_algorithm'] = None
 
+            # NOTE: '[FLOW][SAFE] Requeue' contains scheduler-internal hints.
+            # The display must not implement scheduling decisions; ignore these lines
+            # so the simulator only mirrors explicit enqueue/requeue logs emitted by firmware.
             if "[FLOW][SAFE] Requeue" in line:
-                candidate = re.search(r'candidato #(\d+) \((Izq|Der)\)', line)
-                if candidate:
-                    boat_id = int(candidate.group(1))
-                    boat_origin = 'left' if candidate.group(2).lower().startswith('izq') else 'right'
-                    boat_type = self.boat_type_by_id.get(boat_id)
-                    boat_algorithm = self.state.get('algorithm', 'FCFS')
-                    self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm, front=True)
+                # Intentionally ignored by display-only simulator
+                pass
             
             # Detect ready count
             if "Ready count:" in line:
@@ -566,8 +611,8 @@ class SchedulingShipsDisplay:
         self.draw_queue_items(self.queue_right, sx, sy, w - side_w, w, top + 12, bottom)
 
         # Animación de barco activo
-        now = time.time()
         if self.crossing['active'] and self.crossing['boat_id'] is not None:
+            now = time.time()
             elapsed = self.crossing['pause_progress'] * self.crossing['duration_s'] if self.crossing['paused'] else (now - self.crossing['start_ts'])
             progress = max(0.0, min(1.0, elapsed / self.crossing['duration_s']))
 
@@ -590,7 +635,7 @@ class SchedulingShipsDisplay:
                 self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(self.crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
 
             if progress >= 1.0:
-                # Si no llegó mensaje de finalizado, evita que quede estático
+                # Solo evita que quede congelado si falta el log de finalizado.
                 self.crossing['active'] = False
                 self.crossing['boat_type'] = None
                 self.crossing['boat_origin'] = None

@@ -599,6 +599,7 @@ static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   scheduler->activeBoat = b; // Asigna activo. 
   scheduler->hasActiveBoat = true; // Marca flag. 
   b->allowedToMove = true; // Permite avance al despachar.
+  ship_logf("Dispatching -> barco #%u (rem=%lu svc=%lu)\n", b->id, b->remainingMillis, b->serviceMillis);
   if (b->taskHandle) xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea. 
 
   ship_logf("Start -> barco #%u\n", b->id); // Log del inicio. 
@@ -707,7 +708,8 @@ uint16_t ship_scheduler_get_completed_right_to_left(const ShipScheduler *schedul
 
 unsigned long ship_scheduler_get_active_elapsed_millis(const ShipScheduler *scheduler) { // Devuelve tiempo transcurrido. 
   if (!scheduler || !scheduler->hasActiveBoat || !scheduler->activeBoat) return 0; // Valida estado. 
-  return millis() - scheduler->crossingStartedAt; // Retorna diferencia. 
+  if (scheduler->activeBoat->serviceMillis <= scheduler->activeBoat->remainingMillis) return 0; // Evita underflow si el barco esta detenido o inconsistente. 
+  return scheduler->activeBoat->serviceMillis - scheduler->activeBoat->remainingMillis; // Usa progreso real del barco. 
 } // Fin de ship_scheduler_get_active_elapsed_millis. 
 
 uint16_t ship_scheduler_get_completed_total(const ShipScheduler *scheduler) { // Devuelve total completados. 
@@ -799,9 +801,27 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
       xTaskNotify(activeBoat->taskHandle, NOTIF_CMD_PAUSE, eSetValueWithOverwrite); // Pausa la tarea.
     }
     ship_logf("[EMERGENCY] Barco #%u congelado en el canal\n", activeBoat->id); // Aviso.
-    
+
+    // Reubica el barco en cola inmediatamente para reflejar que salió del canal.
+    scheduler->hasActiveBoat = false; // Limpia estado activo.
+    scheduler->activeBoat = NULL; // Limpia puntero activo.
+    scheduler->crossingStartedAt = 0; // Reinicia timestamp de cruce.
+
+    if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
+      activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia el cruce.
+      activeBoat->state = STATE_WAITING; // Lo devuelve a cola.
+      activeBoat->allowedToMove = false; // Sigue detenido hasta el siguiente despacho.
+      activeBoat->startedAt = 0; // Fuerza que el siguiente despacho sea un viaje nuevo.
+      activeBoat->enqueuedAt = millis(); // Registra nuevo ingreso a cola tras la emergencia.
+      scheduler->readyQueue[scheduler->readyCount] = activeBoat; // Lo agrega al final.
+      scheduler->readyCount++; // Incrementa contador.
+      ship_logf("[EMERGENCY] Barco #%u recolocado en cola en posicion %u (rem=%lu svc=%lu)\n", activeBoat->id, scheduler->readyCount - 1, activeBoat->remainingMillis, activeBoat->serviceMillis); // Confirma recolocacion y tiempos.
+    } else {
+      ship_logf("[EMERGENCY] Cola llena: barco #%u no puede recolocarse, se destruye\n", activeBoat->id); // Error: cola llena.
+      destroyBoat(activeBoat); // Destruye si no cabe.
+    }
   }
-  
+
   scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
   ship_logln("[EMERGENCY] Modo: RECOVERY (esperando apertura de compuertas)"); // Log estado.
 } // Fin de ship_scheduler_trigger_emergency.
@@ -814,28 +834,6 @@ void ship_scheduler_clear_emergency(ShipScheduler *scheduler) { // Limpia el est
     scheduler->gateLeftClosed = 0; // Abre puerta izquierda.
     scheduler->gateRightClosed = 0; // Abre puerta derecha.
     ship_logln("[EMERGENCY] Compuertas ABIERTAS"); // Confirma apertura.
-
-    // Si habia un barco congelado en el canal, lo retira y lo vuelve a encolar.
-    if (scheduler->hasActiveBoat && scheduler->activeBoat) {
-      Boat *activeBoat = scheduler->activeBoat; // Copia referencia.
-      ship_logf("[EMERGENCY] Retirando barco #%u del canal para recolocarlo en cola\n", activeBoat->id); // Aviso.
-
-      scheduler->hasActiveBoat = false; // Limpia estado activo.
-      scheduler->activeBoat = NULL; // Limpia puntero.
-      scheduler->crossingStartedAt = 0; // Reinicia timestamp.
-
-      if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
-        activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia el cruce.
-        activeBoat->state = STATE_WAITING; // Lo devuelve a cola.
-        activeBoat->allowedToMove = false; // Se mantiene detenido hasta el siguiente despacho.
-        scheduler->readyQueue[scheduler->readyCount] = activeBoat; // Lo agrega al final.
-        scheduler->readyCount++; // Incrementa contador.
-        ship_logf("[EMERGENCY] Barco #%u recolocado en cola en posicion %u\n", activeBoat->id, scheduler->readyCount - 1); // Confirma recolocacion.
-      } else {
-        ship_logf("[EMERGENCY] Cola llena: barco #%u no puede recolocarse, se destruye\n", activeBoat->id); // Error: cola llena.
-        destroyBoat(activeBoat); // Destruye si no cabe.
-      }
-    }
 
     if (scheduler->proximityDistanceIsSimulated) { // Si la distancia venia de simulate.
       scheduler->proximityCurrentDistanceCm = 120; // Resetea a distancia segura.
