@@ -124,6 +124,7 @@ const char *ship_scheduler_get_algorithm_label(const ShipScheduler *scheduler) {
   if (!scheduler) return "?"; // Retorna placeholder. 
   switch (scheduler->algorithm) { // Selecciona segun algoritmo. 
     case ALG_FCFS: return "FCFS"; // Etiqueta FCFS. 
+    case ALG_SJF: return "SJF"; // Etiqueta SJF. 
     case ALG_STRN: return "STRN"; // Etiqueta STRN. 
     case ALG_EDF: return "EDF"; // Etiqueta EDF. 
     case ALG_RR: return "RR"; // Etiqueta RR. 
@@ -147,6 +148,22 @@ static int findIndexForAlgo(ShipAlgo algo, Boat *readyQueue[], uint8_t readyCoun
   if (readyCount == 0) return -1; // Si no hay listos, retorna -1. 
   int best = 0; // Indice mejor por defecto. 
   if (algo == ALG_FCFS || algo == ALG_RR) return 0; // FCFS/RR eligen el primero. 
+
+  if (algo == ALG_SJF) { // Caso SJF. 
+    unsigned long minService = readyQueue[0]->serviceMillis; // Tiempo de servicio minimo. 
+    unsigned long bestArrival = readyQueue[0]->arrivalOrder; // Orden de llegada para desempate. 
+    for (uint8_t i = 1; i < readyCount; i++) { // Recorre la cola. 
+      unsigned long candidateService = readyQueue[i]->serviceMillis; // Tiempo de servicio candidato. 
+      unsigned long candidateArrival = readyQueue[i]->arrivalOrder; // Orden de llegada candidato. 
+      if (candidateService < minService || 
+          (candidateService == minService && candidateArrival < bestArrival)) { // Compara servicio y llegada. 
+        minService = candidateService; // Actualiza minimo. 
+        bestArrival = candidateArrival; // Actualiza orden. 
+        best = i; // Actualiza indice. 
+      } 
+    } 
+    return best; // Retorna el mejor. 
+  } 
 
   if (algo == ALG_STRN) { // Caso STRN. 
     unsigned long minRem = readyQueue[0]->remainingMillis; // Tiempo restante minimo. 

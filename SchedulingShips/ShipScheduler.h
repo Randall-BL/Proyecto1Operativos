@@ -8,10 +8,11 @@ extern "C" { // Inicio del bloque con nombres C.
 
 typedef enum ShipAlgo { // Enumeracion de algoritmos. 
   ALG_FCFS = 0, // First Come First Served. 
-  ALG_STRN = 1, // Shortest Remaining Time Next. 
-  ALG_EDF = 2, // Earliest Deadline First. 
-  ALG_RR = 3, // Round Robin. 
-  ALG_PRIORITY = 4 // Prioridad estatica. 
+  ALG_SJF = 1, // Shortest Job First. 
+  ALG_STRN = 2, // Shortest Remaining Time Next. 
+  ALG_EDF = 3, // Earliest Deadline First. 
+  ALG_RR = 4, // Round Robin. 
+  ALG_PRIORITY = 5 // Prioridad estatica. 
 } ShipAlgo; // Alias del enum de algoritmos. 
 
 typedef struct ShipScheduler { // Estructura con el estado del scheduler. 
