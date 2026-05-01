@@ -4,7 +4,7 @@
 - [x] FCFS
 - [x] Round Robin
 - [x] Prioridad
-- [ ] SJF
+- [x] SJF
 - [x] STRN
 - [x] EDF
 

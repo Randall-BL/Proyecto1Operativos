@@ -139,6 +139,7 @@ void runSchedulerTest(ShipScheduler &scheduler, ShipScheduler::Algo algo) {
 void runSchedulerTests(ShipScheduler &scheduler) {
   // Ejecuta todas las variantes de algoritmos en secuencia.
   runSchedulerTest(scheduler, ShipScheduler::ALG_FCFS);
+  runSchedulerTest(scheduler, ShipScheduler::ALG_SJF);
   runSchedulerTest(scheduler, ShipScheduler::ALG_RR);
   runSchedulerTest(scheduler, ShipScheduler::ALG_PRIORITY);
   runSchedulerTest(scheduler, ShipScheduler::ALG_STRN);

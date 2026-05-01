@@ -178,6 +178,7 @@ const char *ShipScheduler::getAlgorithmLabel() const {
     case ALG_EDF: return "EDF";
     case ALG_RR: return "RR";
     case ALG_PRIORITY: return "PRIO";
+    case ALG_SJF: return "SJF";
   }
   return "?";
 }
@@ -224,6 +225,22 @@ static int findIndexForAlgo(ShipScheduler::Algo algo, Boat *readyQueue[], uint8_
     for (uint8_t i = 1; i < readyCount; i++) {
       if (readyQueue[i]->deadlineMillis < minDead) {
         minDead = readyQueue[i]->deadlineMillis;
+        best = i;
+      }
+    }
+    return best;
+  }
+  // SJF no-preemptivo: elige el trabajo con menor tiempo de servicio original.
+  // Desempate por orden de llegada (FCFS).
+  if (algo == ShipScheduler::ALG_SJF) {
+    unsigned long minSvc = readyQueue[0]->serviceMillis;
+    unsigned long bestArrival = readyQueue[0]->arrivalOrder;
+    for (uint8_t i = 1; i < readyCount; i++) {
+      unsigned long svc = readyQueue[i]->serviceMillis;
+      unsigned long arr = readyQueue[i]->arrivalOrder;
+      if (svc < minSvc || (svc == minSvc && arr < bestArrival)) {
+        minSvc = svc;
+        bestArrival = arr;
         best = i;
       }
     }

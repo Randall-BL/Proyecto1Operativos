@@ -17,7 +17,7 @@ public:
   void update();
 
   // Algoritmos de planificacion soportados por el simulador.
-  enum Algo { ALG_FCFS = 0, ALG_STRN = 1, ALG_EDF = 2, ALG_RR = 3, ALG_PRIORITY = 4 };
+  enum Algo { ALG_FCFS = 0, ALG_STRN = 1, ALG_EDF = 2, ALG_RR = 3, ALG_PRIORITY = 4, ALG_SJF = 5 };
   void setAlgorithm(Algo a) { algorithm = a; }
   Algo getAlgorithm() const { return algorithm; }
   // Etiqueta corta usada por la interfaz.

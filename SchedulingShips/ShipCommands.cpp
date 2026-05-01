@@ -9,8 +9,8 @@ static void handleCommand(ShipScheduler &scheduler, String command) {
   if (command == "help") {
     // Imprime ayuda con la lista de comandos soportados.
     Serial.println("Comandos: demo | clear | add <l|r> <n|p|u> [prio]");
-    Serial.println("          alg <fcfs|strn|edf|rr|prio> [ms]");
-    Serial.println("          pause | resume | status | test [all|rr|prio|fcfs|strn|edf]");
+    Serial.println("          alg <fcfs|sjf|strn|edf|rr|prio> [ms]");
+    Serial.println("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf]");
     return;
   }
 
@@ -48,11 +48,14 @@ static void handleCommand(ShipScheduler &scheduler, String command) {
       Serial.print("Algoritmo: RR q=");
       Serial.print(scheduler.getRoundRobinQuantum());
       Serial.println("ms");
+    } else if (name == "sjf") {
+      scheduler.setAlgorithm(ShipScheduler::ALG_SJF);
+      Serial.println("Algoritmo: SJF (Shortest Job First)");
     } else if (name == "prio" || name == "prioridad" || name == "priority") {
       scheduler.setAlgorithm(ShipScheduler::ALG_PRIORITY);
       Serial.println("Algoritmo: Prioridad");
     } else {
-      Serial.println("Uso: alg <fcfs|strn|edf|rr|prio> [ms]");
+      Serial.println("Uso: alg <fcfs|sjf|strn|edf|rr|prio> [ms]");
     }
     return;
   }
@@ -94,12 +97,14 @@ static void handleCommand(ShipScheduler &scheduler, String command) {
       runSchedulerTest(scheduler, ShipScheduler::ALG_PRIORITY);
     } else if (arg == "fcfs") {
       runSchedulerTest(scheduler, ShipScheduler::ALG_FCFS);
+    } else if (arg == "sjf") {
+      runSchedulerTest(scheduler, ShipScheduler::ALG_SJF);
     } else if (arg == "strn") {
       runSchedulerTest(scheduler, ShipScheduler::ALG_STRN);
     } else if (arg == "edf") {
       runSchedulerTest(scheduler, ShipScheduler::ALG_EDF);
     } else {
-      Serial.println("Uso: test [all|rr|prio|fcfs|strn|edf]");
+      Serial.println("Uso: test [all|rr|prio|fcfs|sjf|strn|edf]");
     }
     return;
   }
