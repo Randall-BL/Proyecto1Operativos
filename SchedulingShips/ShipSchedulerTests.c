@@ -114,6 +114,7 @@ void run_scheduler_tests(ShipScheduler *scheduler) { // Ejecuta todas las prueba
   if (!scheduler) return; // Valida el scheduler. 
   // Ejecuta todos los algoritmos soportados por el harness de pruebas. 
   run_scheduler_test(scheduler, ALG_FCFS); // Prueba FCFS. 
+  run_scheduler_test(scheduler, ALG_SJF); // Prueba SJF. 
   run_scheduler_test(scheduler, ALG_RR); // Prueba RR. 
   run_scheduler_test(scheduler, ALG_PRIORITY); // Prueba prioridad. 
   run_scheduler_test(scheduler, ALG_STRN); // Prueba STRN. 

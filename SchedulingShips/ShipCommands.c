@@ -35,8 +35,8 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
 
   if (strcmp(cursor, "help") == 0) { // Comando help. 
     ship_logln("Comandos: demo | clear | add <l|r> <n|p|u> [prio]"); // Lista comandos base. 
-    ship_logln("          alg <fcfs|strn|edf|rr|prio> [ms]"); // Lista alg. 
-    ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|strn|edf]"); // Lista tests. 
+    ship_logln("          alg <fcfs|sjf|strn|edf|rr|prio> [ms]"); // Lista alg. 
+    ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf]"); // Lista tests. 
     return; // Termina. 
   } 
 
@@ -60,6 +60,9 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     if (strcmp(name, "fcfs") == 0) { // Algoritmo FCFS. 
       ship_scheduler_set_algorithm(scheduler, ALG_FCFS); // Cambia algoritmo. 
       ship_logln("Algoritmo: FCFS"); // Confirma. 
+    } else if (strcmp(name, "sjf") == 0) { // Algoritmo SJF. 
+      ship_scheduler_set_algorithm(scheduler, ALG_SJF); // Cambia algoritmo. 
+      ship_logln("Algoritmo: SJF (Shortest Job First)"); // Confirma. 
     } else if (strcmp(name, "strn") == 0) { // Algoritmo STRN. 
       ship_scheduler_set_algorithm(scheduler, ALG_STRN); // Cambia algoritmo. 
       ship_logln("Algoritmo: STRN (Shortest Remaining Time)"); // Confirma. 
@@ -77,7 +80,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
       ship_scheduler_set_algorithm(scheduler, ALG_PRIORITY); // Cambia algoritmo. 
       ship_logln("Algoritmo: Prioridad"); // Confirma. 
     } else { // Algoritmo desconocido. 
-      ship_logln("Uso: alg <fcfs|strn|edf|rr|prio> [ms]"); // Muestra ayuda. 
+      ship_logln("Uso: alg <fcfs|sjf|strn|edf|rr|prio> [ms]"); // Muestra ayuda. 
     } 
     return; // Termina. 
   } 
@@ -114,12 +117,14 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
       run_scheduler_test(scheduler, ALG_PRIORITY); // Ejecuta prioridad. 
     } else if (strcmp(arg, "fcfs") == 0) { // Prueba FCFS. 
       run_scheduler_test(scheduler, ALG_FCFS); // Ejecuta FCFS. 
+    } else if (strcmp(arg, "sjf") == 0) { // Prueba SJF. 
+      run_scheduler_test(scheduler, ALG_SJF); // Ejecuta SJF. 
     } else if (strcmp(arg, "strn") == 0) { // Prueba STRN. 
       run_scheduler_test(scheduler, ALG_STRN); // Ejecuta STRN. 
     } else if (strcmp(arg, "edf") == 0) { // Prueba EDF. 
       run_scheduler_test(scheduler, ALG_EDF); // Ejecuta EDF. 
     } else { // Caso desconocido. 
-      ship_logln("Uso: test [all|rr|prio|fcfs|strn|edf]"); // Muestra ayuda. 
+      ship_logln("Uso: test [all|rr|prio|fcfs|sjf|strn|edf]"); // Muestra ayuda. 
     } 
     return; // Termina. 
   } 
@@ -164,7 +169,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     } else { // Si no hay prioridad. 
       ship_scheduler_enqueue(scheduler, createBoat(side, type)); // Encola con prioridad base. 
     } 
-    ship_logln("Barco agregado a la cola."); // Confirma. 
+    // El detalle del alta (id, tipo y origen) se imprime dentro del scheduler.
     return; // Termina. 
   } 
 

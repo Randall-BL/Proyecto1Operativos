@@ -228,6 +228,8 @@ void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un
   scheduler->readyQueue[insertAt] = boat; // Inserta el barco. 
   scheduler->readyCount++; // Incrementa la cola. 
 
+  ship_logf("Barco agregado: #%u tipo=%s origen=%s\n", boat->id, boatTypeName(boat->type), boatSideName(boat->origin)); // Log detallado de alta. 
+
   xTaskCreate(boatTask, "boat", 4096, boat, 1, &boat->taskHandle); // Crea la tarea del barco. 
 
   if (scheduler->hasActiveBoat && scheduler->activeBoat) { // Si hay activo. 
@@ -352,7 +354,7 @@ static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler) { // Fin
   b->state = STATE_DONE; // Marca estado final. 
   scheduler->activeBoat = NULL; // Limpia activo. 
   scheduler->hasActiveBoat = false; // Limpia flag. 
-  ship_logln("Barco finalizado"); // Log de finalizacion. 
+  ship_logf("Barco finalizado: #%u tipo=%s origen=%s\n", b->id, boatTypeName(b->type), boatSideName(b->origin)); // Log de finalizacion con tipo. 
 } // Fin de ship_scheduler_finish_active_boat. 
 
 void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de planificacion. 
