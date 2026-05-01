@@ -92,7 +92,10 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     if (!running) { // Si no esta corriendo. 
       xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, portMAX_DELAY); // Espera notificacion. 
       if (cmd == NOTIF_CMD_TERMINATE) break; // Si terminate, sale. 
-      if (cmd == NOTIF_CMD_RUN) running = true; // Si run, inicia. 
+      if (cmd == NOTIF_CMD_RUN) { // Si run, inicia. 
+        running = true; // Marca ejecucion activa. 
+        b->allowedToMove = true; // Permite avanzar. 
+      } 
       continue; // Repite el ciclo. 
     } 
 
@@ -100,21 +103,30 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     if (step > b->remainingMillis) step = b->remainingMillis; // Ajusta si queda menos. 
     unsigned long slept = 0; // Acumulado de tiempo ejecutado. 
     const unsigned long slice = 50; // Subpaso interno. 
+    bool interrupted = false; // Indica si se interrumpio el paso por pausa/termino. 
     while (slept < step) { // Mientras falte ejecutar el paso. 
       xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando. 
       if (cmd == NOTIF_CMD_TERMINATE) { // Si terminate. 
         b->remainingMillis = 0; // Fuerza fin. 
         running = false; // Detiene ejecucion. 
+        b->allowedToMove = false; // Bloquea movimiento. 
+        interrupted = true; // Marca interrupcion. 
         break; // Sale del while interno. 
       } 
       if (cmd == NOTIF_CMD_PAUSE) { // Si pause. 
         running = false; // Detiene ejecucion. 
+        b->allowedToMove = false; // Bloquea movimiento. 
+        interrupted = true; // Marca interrupcion. 
         break; // Sale del while interno. 
       } 
 
       unsigned long doSleep = slice; // Tiempo a contar. 
       if (slept + doSleep > step) doSleep = step - slept; // Ajusta si excede. 
       slept += doSleep; // Acumula tiempo. 
+    } 
+
+    if (interrupted || !running) { // Si se interrumpio o quedo pausado. 
+      continue; // No descuenta tiempo restante. 
     } 
 
     if (b->remainingMillis > step) { // Si queda tiempo. 
@@ -150,6 +162,7 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   scheduler->sensorActive = false; // Sensor deshabilitado por defecto.
   scheduler->proximityThresholdCm = 150; // Umbral de 150cm por defecto.
   scheduler->proximityCurrentDistanceCm = 999; // Distancia inicial "lejana".
+  scheduler->proximityDistanceIsSimulated = false; // Distancia real por defecto.
   scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.
   scheduler->emergencyStartedAt = 0; // Sin timestamp.
   scheduler->gateLeftClosed = 0; // Puerta izquierda abierta.
@@ -366,12 +379,24 @@ uint16_t ship_scheduler_get_proximity_threshold(const ShipScheduler *scheduler) 
 void ship_scheduler_set_proximity_distance(ShipScheduler *scheduler, uint16_t cm) { // Ajusta distancia actual (simulada).
   if (!scheduler) return; // Valida puntero.
   scheduler->proximityCurrentDistanceCm = cm; // Aplica distancia.
+  scheduler->proximityDistanceIsSimulated = false; // Marca entrada como real.
   // Verifica si se activa la emergencia por proximidad
   if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm < scheduler->proximityThresholdCm) {
     ship_logf("[SENSOR] ALERTA: Barco a %u cm (umbral: %u cm)\n", cm, scheduler->proximityThresholdCm);
     ship_scheduler_trigger_emergency(scheduler);
   }
 } // Fin de ship_scheduler_set_proximity_distance.
+
+void ship_scheduler_set_proximity_distance_simulated(ShipScheduler *scheduler, uint16_t cm) { // Ajusta distancia usando simulate.
+  if (!scheduler) return; // Valida puntero.
+  scheduler->proximityCurrentDistanceCm = cm; // Aplica distancia simulada.
+  scheduler->proximityDistanceIsSimulated = true; // Marca que viene de simulate.
+  // Verifica si se activa la emergencia por proximidad
+  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm < scheduler->proximityThresholdCm) {
+    ship_logf("[SENSOR] ALERTA: Barco a %u cm (umbral: %u cm)\n", cm, scheduler->proximityThresholdCm);
+    ship_scheduler_trigger_emergency(scheduler);
+  }
+} // Fin de ship_scheduler_set_proximity_distance_simulated.
 
 uint16_t ship_scheduler_get_proximity_distance(const ShipScheduler *scheduler) { // Lee distancia actual.
   if (!scheduler) return 999; // Retorna default "lejano".
@@ -573,6 +598,7 @@ static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   scheduler->crossingStartedAt = millis(); // Marca el inicio del cruce. 
   scheduler->activeBoat = b; // Asigna activo. 
   scheduler->hasActiveBoat = true; // Marca flag. 
+  b->allowedToMove = true; // Permite avance al despachar.
   if (b->taskHandle) xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea. 
 
   ship_logf("Start -> barco #%u\n", b->id); // Log del inicio. 
@@ -728,6 +754,7 @@ void ship_scheduler_notify_boat_finished(ShipScheduler *scheduler, Boat *b) { //
 void ship_scheduler_pause_active(ShipScheduler *scheduler) { // Pausa el barco activo. 
   if (scheduler && scheduler->hasActiveBoat && scheduler->activeBoat) { // Valida activo. 
     if (scheduler->activeBoat->taskHandle) { // Si hay tarea. 
+      scheduler->activeBoat->allowedToMove = false; // Congela movimiento del barco. 
       xTaskNotify(scheduler->activeBoat->taskHandle, NOTIF_CMD_PAUSE, eSetValueWithOverwrite); // Envia pausa. 
     } 
     ship_logf("Pausado barco #%u\n", scheduler->activeBoat->id); // Log de pausa. 
@@ -739,6 +766,7 @@ void ship_scheduler_pause_active(ShipScheduler *scheduler) { // Pausa el barco a
 void ship_scheduler_resume_active(ShipScheduler *scheduler) { // Reanuda el barco activo. 
   if (scheduler && scheduler->hasActiveBoat && scheduler->activeBoat) { // Valida activo. 
     if (scheduler->activeBoat->taskHandle) { // Si hay tarea. 
+      scheduler->activeBoat->allowedToMove = true; // Permite movimiento del barco. 
       xTaskNotify(scheduler->activeBoat->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Envia run. 
     } 
     ship_logf("Reanudado barco #%u\n", scheduler->activeBoat->id); // Log de reanudacion. 
@@ -763,33 +791,15 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
   
   ship_logln("[EMERGENCY] Compuertas CERRADAS"); // Confirma cierre.
   
-  // Remueve barco activo y lo vuelve a encolar
+  // Congela temporalmente el barco activo mientras dura la emergencia.
   if (scheduler->hasActiveBoat && scheduler->activeBoat) {
     Boat *activeBoat = scheduler->activeBoat; // Copia referencia.
-    ship_logf("[EMERGENCY] Removiendo barco #%u del canal\n", activeBoat->id); // Aviso.
-    
-    // Termina tarea del barco activo
-    activeBoat->cancelled = true; // Marca como cancelado.
+    activeBoat->allowedToMove = false; // Bloquea movimiento.
     if (activeBoat->taskHandle) {
-      xTaskNotify(activeBoat->taskHandle, NOTIF_CMD_TERMINATE, eSetValueWithOverwrite); // Ordena terminar.
+      xTaskNotify(activeBoat->taskHandle, NOTIF_CMD_PAUSE, eSetValueWithOverwrite); // Pausa la tarea.
     }
+    ship_logf("[EMERGENCY] Barco #%u congelado en el canal\n", activeBoat->id); // Aviso.
     
-    scheduler->hasActiveBoat = false; // Limpia estado.
-    scheduler->activeBoat = NULL; // Limpia puntero.
-    scheduler->crossingStartedAt = 0; // Reinicia timestamp.
-    
-    // Reencola el barco
-    if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
-      activeBoat->cancelled = false; // Limpia flag de cancelacion.
-      activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia servicio.
-      activeBoat->state = STATE_WAITING; // Marca como esperando.
-      scheduler->readyQueue[scheduler->readyCount] = activeBoat; // Agrega a cola.
-      scheduler->readyCount++; // Incrementa contador.
-      ship_logf("[EMERGENCY] Barco #%u reencola en posicion %u\n", activeBoat->id, scheduler->readyCount - 1); // Confirma reencolado.
-    } else {
-      ship_logf("[EMERGENCY] Cola llena: barco #%u no puede ser reencolado, se destruye\n", activeBoat->id); // Error: cola llena.
-      destroyBoat(activeBoat); // Destruye barco si no cabe.
-    }
   }
   
   scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
@@ -804,6 +814,34 @@ void ship_scheduler_clear_emergency(ShipScheduler *scheduler) { // Limpia el est
     scheduler->gateLeftClosed = 0; // Abre puerta izquierda.
     scheduler->gateRightClosed = 0; // Abre puerta derecha.
     ship_logln("[EMERGENCY] Compuertas ABIERTAS"); // Confirma apertura.
+
+    // Si habia un barco congelado en el canal, lo retira y lo vuelve a encolar.
+    if (scheduler->hasActiveBoat && scheduler->activeBoat) {
+      Boat *activeBoat = scheduler->activeBoat; // Copia referencia.
+      ship_logf("[EMERGENCY] Retirando barco #%u del canal para recolocarlo en cola\n", activeBoat->id); // Aviso.
+
+      scheduler->hasActiveBoat = false; // Limpia estado activo.
+      scheduler->activeBoat = NULL; // Limpia puntero.
+      scheduler->crossingStartedAt = 0; // Reinicia timestamp.
+
+      if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
+        activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia el cruce.
+        activeBoat->state = STATE_WAITING; // Lo devuelve a cola.
+        activeBoat->allowedToMove = false; // Se mantiene detenido hasta el siguiente despacho.
+        scheduler->readyQueue[scheduler->readyCount] = activeBoat; // Lo agrega al final.
+        scheduler->readyCount++; // Incrementa contador.
+        ship_logf("[EMERGENCY] Barco #%u recolocado en cola en posicion %u\n", activeBoat->id, scheduler->readyCount - 1); // Confirma recolocacion.
+      } else {
+        ship_logf("[EMERGENCY] Cola llena: barco #%u no puede recolocarse, se destruye\n", activeBoat->id); // Error: cola llena.
+        destroyBoat(activeBoat); // Destruye si no cabe.
+      }
+    }
+
+    if (scheduler->proximityDistanceIsSimulated) { // Si la distancia venia de simulate.
+      scheduler->proximityCurrentDistanceCm = 120; // Resetea a distancia segura.
+      scheduler->proximityDistanceIsSimulated = false; // Limpia bandera de simulacion.
+      ship_logln("[SENSOR] distancia: 120 cm"); // Confirma reseteo para el display.
+    }
   }
   
   scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.

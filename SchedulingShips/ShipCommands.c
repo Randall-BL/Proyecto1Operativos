@@ -148,7 +148,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
         ship_logln("Uso: sensor simulate <cm>"); // Muestra ayuda.
       } else {
         ship_logf("[SENSOR] Simulando distancia: %lu cm\n", distanceCm); // Aviso.
-        ship_scheduler_set_proximity_distance(scheduler, (uint16_t)distanceCm); // Simula distancia.
+        ship_scheduler_set_proximity_distance_simulated(scheduler, (uint16_t)distanceCm); // Simula distancia.
       }
     } else { // Subcomando desconocido.
       ship_logln("Uso: sensor <activate|deactivate|threshold|simulate> [param]"); // Ayuda.

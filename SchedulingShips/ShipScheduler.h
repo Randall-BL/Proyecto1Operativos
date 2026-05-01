@@ -61,6 +61,7 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   bool sensorActive; // Sensor habilitado/deshabilitado.
   uint16_t proximityThresholdCm; // Distancia umbral de alerta en cm.
   uint16_t proximityCurrentDistanceCm; // Distancia actual medida/simulada.
+  bool proximityDistanceIsSimulated; // Indica si la distancia viene de sensor simulate.
   ShipEmergencyMode emergencyMode; // Estado actual de emergencia.
   unsigned long emergencyStartedAt; // Marca de inicio de la emergencia.
   uint8_t gateLeftClosed; // Estado puerta izquierda (0=abierta, 1=cerrando, 2=cerrada).
@@ -123,6 +124,7 @@ bool ship_scheduler_get_sensor_enabled(const ShipScheduler *scheduler); // Lee e
 void ship_scheduler_set_proximity_threshold(ShipScheduler *scheduler, uint16_t cm); // Ajusta umbral en cm.
 uint16_t ship_scheduler_get_proximity_threshold(const ShipScheduler *scheduler); // Lee umbral en cm.
 void ship_scheduler_set_proximity_distance(ShipScheduler *scheduler, uint16_t cm); // Ajusta distancia actual (simulada).
+void ship_scheduler_set_proximity_distance_simulated(ShipScheduler *scheduler, uint16_t cm); // Ajusta distancia usando simulate.
 uint16_t ship_scheduler_get_proximity_distance(const ShipScheduler *scheduler); // Lee distancia actual.
 ShipEmergencyMode ship_scheduler_get_emergency_mode(const ShipScheduler *scheduler); // Lee modo de emergencia.
 void ship_scheduler_trigger_emergency(ShipScheduler *scheduler); // Activa emergencia por proximidad.
