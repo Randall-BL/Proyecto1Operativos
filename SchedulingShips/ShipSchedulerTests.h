@@ -8,6 +8,7 @@ extern "C" { // Inicio del bloque con nombres C.
 
 void run_scheduler_tests(ShipScheduler *scheduler); // Ejecuta la bateria completa. 
 void run_scheduler_test(ShipScheduler *scheduler, ShipAlgo algo); // Ejecuta una prueba puntual. 
+void run_flow_control_tests(ShipScheduler *scheduler); // Ejecuta pruebas de control de flujo. 
 
 #ifdef __cplusplus // Cierra el bloque de linkage C. 
 } // Fin de extern "C". 

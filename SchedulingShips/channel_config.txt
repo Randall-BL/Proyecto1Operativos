@@ -1,0 +1,24 @@
+# channel_config.txt
+# Formato: un comando por linea (igual que por Serial)
+# Modo de control de flujo: tico | fair | sign
+flow fair
+flowlog on
+
+# Parametro W para equidad
+w 2
+
+# Tiempo de cambio del letrero en ms (solo aplica en modo sign)
+signms 8000
+
+# Direccion inicial del letrero: l (izquierda) | r (derecha)
+sign l
+
+# Parametros fisicos del canal
+chanlen 120
+boatspeed 18
+
+# Cantidad maxima de barcos en la cola de listos
+readymax 12
+
+# Algoritmo de scheduling de CPU para elegir siguiente barco
+alg sjf

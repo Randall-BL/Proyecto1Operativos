@@ -36,7 +36,10 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
   if (strcmp(cursor, "help") == 0) { // Comando help. 
     ship_logln("Comandos: demo | clear | add <l|r> <n|p|u> [prio]"); // Lista comandos base. 
     ship_logln("          alg <fcfs|sjf|strn|edf|rr|prio> [ms]"); // Lista alg. 
-    ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf]"); // Lista tests. 
+    ship_logln("          flow <tico|fair|sign> | w <n> | sign <l|r> | signms <ms>"); // Lista flujo.
+    ship_logln("          flowlog <on|off>"); // Trazas de flujo.
+    ship_logln("          chanlen <m> | boatspeed <mps> | readymax <n>"); // Lista canal.
+    ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf|flow]"); // Lista tests. 
     return; // Termina. 
   } 
 
@@ -85,6 +88,95 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     return; // Termina. 
   } 
 
+  if (starts_with(cursor, "flow ")) { // Comando flow.
+    char *arg = cursor + 5; // Salta el prefijo.
+    trim_left(&arg); // Limpia espacios.
+    if (strcmp(arg, "tico") == 0) { // Modo tico.
+      ship_scheduler_set_flow_mode(scheduler, FLOW_TICO); // Configura tico.
+      ship_logln("Flujo: TICO (sin control de turno)"); // Confirma.
+    } else if (strcmp(arg, "fair") == 0 || strcmp(arg, "equidad") == 0) { // Modo equidad.
+      ship_scheduler_set_flow_mode(scheduler, FLOW_FAIRNESS); // Configura equidad.
+      ship_logf("Flujo: EQUIDAD W=%u\n", ship_scheduler_get_fairness_window(scheduler)); // Confirma.
+    } else if (strcmp(arg, "sign") == 0 || strcmp(arg, "letrero") == 0) { // Modo letrero.
+      ship_scheduler_set_flow_mode(scheduler, FLOW_SIGN); // Configura letrero.
+      ship_logf("Flujo: LETRERO (%s cada %lums)\n", boatSideName(ship_scheduler_get_sign_direction(scheduler)), ship_scheduler_get_sign_interval(scheduler)); // Confirma.
+    } else { // Opcion invalida.
+      ship_logln("Uso: flow <tico|fair|sign>"); // Ayuda.
+    }
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "flowlog ")) { // Comando flowlog.
+    char *arg = cursor + 8; // Salta prefijo.
+    trim_left(&arg); // Limpia espacios.
+    bool enabled = !(strcmp(arg, "off") == 0 || strcmp(arg, "0") == 0); // Interpreta valor.
+    ship_scheduler_set_flow_logging(scheduler, enabled); // Aplica trazas.
+    ship_logf("FlowLog: %s\n", ship_scheduler_get_flow_logging(scheduler) ? "ON" : "OFF"); // Confirma estado.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "w ")) { // Comando parametro W.
+    char *arg = cursor + 2; // Valor de W.
+    trim_left(&arg); // Limpia espacios.
+    unsigned long value = strtoul(arg, NULL, 10); // Convierte a entero.
+    if (value == 0) value = 1; // Fuerza minimo.
+    if (value > 255) value = 255; // Limita maximo.
+    ship_scheduler_set_fairness_window(scheduler, (uint8_t)value); // Aplica W.
+    ship_logf("Equidad W=%u\n", ship_scheduler_get_fairness_window(scheduler)); // Confirma.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "sign ")) { // Comando direccion de letrero.
+    char *arg = cursor + 5; // Valor de direccion.
+    trim_left(&arg); // Limpia espacios.
+    BoatSide side = (arg[0] == 'r' || arg[0] == 'R' || arg[0] == 'd' || arg[0] == 'D') ? SIDE_RIGHT : SIDE_LEFT; // Parsea lado.
+    ship_scheduler_set_sign_direction(scheduler, side); // Aplica lado.
+    ship_logf("Letrero en %s\n", boatSideName(ship_scheduler_get_sign_direction(scheduler))); // Confirma.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "signms ")) { // Comando intervalo de letrero.
+    char *arg = cursor + 7; // Valor de milisegundos.
+    trim_left(&arg); // Limpia espacios.
+    unsigned long value = strtoul(arg, NULL, 10); // Convierte a entero.
+    ship_scheduler_set_sign_interval(scheduler, value); // Aplica intervalo.
+    ship_logf("Letrero cada %lums\n", ship_scheduler_get_sign_interval(scheduler)); // Confirma.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "chanlen ")) { // Comando largo de canal.
+    char *arg = cursor + 8; // Valor de metros.
+    trim_left(&arg); // Limpia espacios.
+    unsigned long value = strtoul(arg, NULL, 10); // Convierte a entero.
+    if (value == 0) value = 1; // Fuerza minimo.
+    if (value > 65535UL) value = 65535UL; // Limita maximo uint16_t.
+    ship_scheduler_set_channel_length(scheduler, (uint16_t)value); // Aplica largo.
+    ship_logf("Canal=%um\n", ship_scheduler_get_channel_length(scheduler)); // Confirma.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "boatspeed ")) { // Comando velocidad de barco.
+    char *arg = cursor + 10; // Valor de m/s.
+    trim_left(&arg); // Limpia espacios.
+    unsigned long value = strtoul(arg, NULL, 10); // Convierte a entero.
+    if (value == 0) value = 1; // Fuerza minimo.
+    if (value > 65535UL) value = 65535UL; // Limita maximo uint16_t.
+    ship_scheduler_set_boat_speed(scheduler, (uint16_t)value); // Aplica velocidad.
+    ship_logf("Velocidad base=%um/s\n", ship_scheduler_get_boat_speed(scheduler)); // Confirma.
+    return; // Termina.
+  }
+
+  if (starts_with(cursor, "readymax ")) { // Comando limite de cola.
+    char *arg = cursor + 9; // Valor de limite.
+    trim_left(&arg); // Limpia espacios.
+    unsigned long value = strtoul(arg, NULL, 10); // Convierte a entero.
+    if (value == 0) value = 1; // Fuerza minimo.
+    if (value > MAX_BOATS) value = MAX_BOATS; // Limita maximo permitido.
+    ship_scheduler_set_max_ready_queue(scheduler, (uint8_t)value); // Aplica limite.
+    ship_logf("Cola maxima=%u\n", ship_scheduler_get_max_ready_queue(scheduler)); // Confirma.
+    return; // Termina.
+  }
+
   if (strcmp(cursor, "clear") == 0) { // Comando clear. 
     ship_scheduler_clear(scheduler); // Limpia el scheduler. 
     ship_logln("Colas limpiadas."); // Confirma. 
@@ -111,6 +203,8 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     trim_left(&arg); // Limpia espacios. 
     if (arg[0] == '\0' || strcmp(arg, "all") == 0) { // Sin argumento o all. 
       run_scheduler_tests(scheduler); // Ejecuta todas las pruebas. 
+    } else if (strcmp(arg, "flow") == 0) { // Pruebas de control de flujo.
+      run_flow_control_tests(scheduler); // Ejecuta bateria de flujo.
     } else if (strcmp(arg, "rr") == 0) { // Prueba RR. 
       run_scheduler_test(scheduler, ALG_RR); // Ejecuta RR. 
     } else if (strcmp(arg, "prio") == 0 || strcmp(arg, "prioridad") == 0 || strcmp(arg, "priority") == 0) { // Prueba prioridad. 
@@ -124,7 +218,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     } else if (strcmp(arg, "edf") == 0) { // Prueba EDF. 
       run_scheduler_test(scheduler, ALG_EDF); // Ejecuta EDF. 
     } else { // Caso desconocido. 
-      ship_logln("Uso: test [all|rr|prio|fcfs|sjf|strn|edf]"); // Muestra ayuda. 
+      ship_logln("Uso: test [all|rr|prio|fcfs|sjf|strn|edf|flow]"); // Muestra ayuda. 
     } 
     return; // Termina. 
   } 

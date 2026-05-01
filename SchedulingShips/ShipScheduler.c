@@ -12,6 +12,72 @@ static void ship_scheduler_requeue_boat(ShipScheduler *scheduler, Boat *boat, bo
 static void ship_scheduler_start_next_boat(ShipScheduler *scheduler); // Declara start. 
 static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler); // Declara finish. 
 static void ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler); // Declara preempt RR. 
+static BoatSide opposite_side(BoatSide side); // Declara lado opuesto.
+static bool queue_has_side(const ShipScheduler *scheduler, BoatSide side); // Declara busqueda por lado.
+static bool candidate_is_better(ShipAlgo algo, const Boat *candidate, const Boat *best); // Declara comparador.
+static int findIndexForAlgoAndSide(ShipAlgo algo, Boat *readyQueue[], uint8_t readyCount, bool useSide, BoatSide side); // Declara selector filtrado.
+static void ship_scheduler_tick_sign(ShipScheduler *scheduler); // Declara tick de letrero.
+static int ship_scheduler_select_next_index(ShipScheduler *scheduler); // Declara selector con flujo.
+
+#define FLOW_LOG(schedulerPtr, fmt, ...) do { if ((schedulerPtr) && (schedulerPtr)->flowLoggingEnabled) ship_logf(fmt, ##__VA_ARGS__); } while (0) // Macro de trazas de flujo.
+
+static BoatSide opposite_side(BoatSide side) { // Retorna el lado opuesto.
+  return side == SIDE_LEFT ? SIDE_RIGHT : SIDE_LEFT; // Evalua el opuesto.
+} // Fin de opposite_side.
+
+static bool queue_has_side(const ShipScheduler *scheduler, BoatSide side) { // Verifica si hay barcos por lado.
+  if (!scheduler) return false; // Valida scheduler.
+  for (uint8_t i = 0; i < scheduler->readyCount; i++) { // Recorre cola.
+    if (scheduler->readyQueue[i] && scheduler->readyQueue[i]->origin == side) return true; // Retorna al encontrar.
+  }
+  return false; // No encontro barcos de ese lado.
+} // Fin de queue_has_side.
+
+static bool candidate_is_better(ShipAlgo algo, const Boat *candidate, const Boat *best) { // Compara dos candidatos.
+  if (!candidate) return false; // Valida candidato.
+  if (!best) return true; // Si no hay mejor actual, gana candidato.
+
+  if (algo == ALG_FCFS || algo == ALG_RR) { // FCFS y RR priorizan llegada.
+    return candidate->arrivalOrder < best->arrivalOrder; // Menor llegada es mejor.
+  }
+
+  if (algo == ALG_SJF) { // SJF usa servicio total.
+    if (candidate->serviceMillis != best->serviceMillis) return candidate->serviceMillis < best->serviceMillis; // Menor servicio gana.
+    return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
+  }
+
+  if (algo == ALG_STRN) { // STRN usa tiempo restante.
+    if (candidate->remainingMillis != best->remainingMillis) return candidate->remainingMillis < best->remainingMillis; // Menor restante gana.
+    return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
+  }
+
+  if (algo == ALG_EDF) { // EDF usa deadline.
+    if (candidate->deadlineMillis != best->deadlineMillis) return candidate->deadlineMillis < best->deadlineMillis; // Menor deadline gana.
+    return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
+  }
+
+  if (algo == ALG_PRIORITY) { // Prioridad estatica.
+    if (candidate->priority != best->priority) return candidate->priority > best->priority; // Mayor prioridad gana.
+    return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
+  }
+
+  return candidate->arrivalOrder < best->arrivalOrder; // Fallback por llegada.
+} // Fin de candidate_is_better.
+
+static int findIndexForAlgoAndSide(ShipAlgo algo, Boat *readyQueue[], uint8_t readyCount, bool useSide, BoatSide side) { // Busca el mejor indice filtrando por lado opcional.
+  int bestIndex = -1; // Inicializa sin candidato.
+  Boat *bestBoat = NULL; // Mejor barco temporal.
+  for (uint8_t i = 0; i < readyCount; i++) { // Recorre cola completa.
+    Boat *candidate = readyQueue[i]; // Obtiene candidato.
+    if (!candidate) continue; // Salta nulos.
+    if (useSide && candidate->origin != side) continue; // Filtra por lado cuando aplica.
+    if (candidate_is_better(algo, candidate, bestBoat)) { // Evalua si mejora.
+      bestBoat = candidate; // Actualiza mejor barco.
+      bestIndex = i; // Actualiza mejor indice.
+    }
+  }
+  return bestIndex; // Retorna indice o -1.
+} // Fin de findIndexForAlgoAndSide.
 
 static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco. 
   Boat *b = (Boat *)pv; // Convierte el parametro a Boat. 
@@ -68,6 +134,18 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
 
 void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler. 
   if (!scheduler) return; // Valida puntero. 
+  if (scheduler->rrQuantumMillis < 100) scheduler->rrQuantumMillis = 1200; // Default RR.
+  if (scheduler->fairnessWindowW == 0) scheduler->fairnessWindowW = 2; // Default W.
+  if (scheduler->signIntervalMillis < 1000) scheduler->signIntervalMillis = 8000; // Default de letrero.
+  if (scheduler->maxReadyQueueConfigured == 0 || scheduler->maxReadyQueueConfigured > MAX_BOATS) scheduler->maxReadyQueueConfigured = MAX_BOATS; // Limite de cola por defecto.
+  if (scheduler->channelLengthMeters == 0) scheduler->channelLengthMeters = 120; // Largo default del canal.
+  if (scheduler->boatSpeedMetersPerSec == 0) scheduler->boatSpeedMetersPerSec = 18; // Velocidad default.
+  scheduler->flowMode = FLOW_TICO; // Default de flujo (sin control).
+  scheduler->signDirection = SIDE_LEFT; // Default letrero izquierda.
+  scheduler->signLastSwitchAt = millis(); // Marca inicial de letrero.
+  scheduler->fairnessCurrentSide = SIDE_LEFT; // Lado inicial de equidad.
+  scheduler->fairnessPassedInWindow = 0; // Reinicia ventana de equidad.
+  scheduler->collisionDetections = 0; // Reinicia contador de colisiones.
   ship_scheduler_clear(scheduler); // Limpia estado. 
   gScheduler = scheduler; // Registra global. 
 } // Fin de ship_scheduler_begin. 
@@ -108,6 +186,8 @@ void ship_scheduler_clear(ShipScheduler *scheduler) { // Limpia colas y tareas.
   scheduler->totalServiceMillis = 0; // Resetea servicio. 
   scheduler->completionCount = 0; // Resetea orden final. 
   scheduler->crossingStartedAt = 0; // Resetea tiempo de cruce. 
+  scheduler->fairnessPassedInWindow = 0; // Resetea ventana de equidad.
+  scheduler->signLastSwitchAt = millis(); // Reinicia reloj de letrero.
 } // Fin de ship_scheduler_clear. 
 
 void ship_scheduler_set_algorithm(ShipScheduler *scheduler, ShipAlgo algo) { // Configura algoritmo. 
@@ -144,72 +224,181 @@ unsigned long ship_scheduler_get_round_robin_quantum(const ShipScheduler *schedu
   return scheduler->rrQuantumMillis; // Retorna quantum. 
 } // Fin de ship_scheduler_get_round_robin_quantum. 
 
+void ship_scheduler_set_flow_mode(ShipScheduler *scheduler, ShipFlowMode mode) { // Configura metodo de flujo.
+  if (!scheduler) return; // Valida puntero.
+  scheduler->flowMode = mode; // Asigna modo.
+  scheduler->fairnessPassedInWindow = 0; // Reinicia ventana de equidad.
+  scheduler->signLastSwitchAt = millis(); // Reinicia reloj del letrero.
+} // Fin de ship_scheduler_set_flow_mode.
+
+ShipFlowMode ship_scheduler_get_flow_mode(const ShipScheduler *scheduler) { // Lee metodo de flujo.
+  if (!scheduler) return FLOW_TICO; // Retorna default si es nulo.
+  return scheduler->flowMode; // Retorna modo configurado.
+} // Fin de ship_scheduler_get_flow_mode.
+
+const char *ship_scheduler_get_flow_mode_label(const ShipScheduler *scheduler) { // Etiqueta de flujo.
+  if (!scheduler) return "?"; // Retorna placeholder.
+  switch (scheduler->flowMode) { // Selecciona segun modo.
+    case FLOW_TICO: return "TICO"; // Sin control de lado.
+    case FLOW_FAIRNESS: return "EQUIDAD"; // Ventana W.
+    case FLOW_SIGN: return "LETRERO"; // Cambio por tiempo.
+  }
+  return "?"; // Fallback.
+} // Fin de ship_scheduler_get_flow_mode_label.
+
+void ship_scheduler_set_fairness_window(ShipScheduler *scheduler, uint8_t windowW) { // Ajusta W.
+  if (!scheduler) return; // Valida puntero.
+  if (windowW == 0) windowW = 1; // Normaliza minimo.
+  scheduler->fairnessWindowW = windowW; // Asigna W.
+  scheduler->fairnessPassedInWindow = 0; // Reinicia conteo de ventana.
+} // Fin de ship_scheduler_set_fairness_window.
+
+uint8_t ship_scheduler_get_fairness_window(const ShipScheduler *scheduler) { // Lee W.
+  if (!scheduler) return 1; // Retorna default.
+  return scheduler->fairnessWindowW == 0 ? 1 : scheduler->fairnessWindowW; // Retorna W normalizado.
+} // Fin de ship_scheduler_get_fairness_window.
+
+void ship_scheduler_set_sign_direction(ShipScheduler *scheduler, BoatSide side) { // Ajusta direccion del letrero.
+  if (!scheduler) return; // Valida puntero.
+  scheduler->signDirection = side; // Asigna lado.
+  scheduler->signLastSwitchAt = millis(); // Reinicia reloj del letrero.
+} // Fin de ship_scheduler_set_sign_direction.
+
+BoatSide ship_scheduler_get_sign_direction(const ShipScheduler *scheduler) { // Lee direccion del letrero.
+  if (!scheduler) return SIDE_LEFT; // Retorna default.
+  return scheduler->signDirection; // Retorna lado.
+} // Fin de ship_scheduler_get_sign_direction.
+
+void ship_scheduler_set_sign_interval(ShipScheduler *scheduler, unsigned long intervalMillis) { // Ajusta periodo del letrero.
+  if (!scheduler) return; // Valida puntero.
+  if (intervalMillis < 1000) intervalMillis = 1000; // Fuerza minimo estable.
+  scheduler->signIntervalMillis = intervalMillis; // Asigna periodo.
+  scheduler->signLastSwitchAt = millis(); // Reinicia reloj del letrero.
+} // Fin de ship_scheduler_set_sign_interval.
+
+unsigned long ship_scheduler_get_sign_interval(const ShipScheduler *scheduler) { // Lee periodo del letrero.
+  if (!scheduler) return 0; // Retorna cero si es nulo.
+  return scheduler->signIntervalMillis; // Retorna periodo.
+} // Fin de ship_scheduler_get_sign_interval.
+
+void ship_scheduler_set_max_ready_queue(ShipScheduler *scheduler, uint8_t limit) { // Ajusta tamano maximo de cola.
+  if (!scheduler) return; // Valida puntero.
+  if (limit == 0) limit = 1; // Fuerza minimo.
+  if (limit > MAX_BOATS) limit = MAX_BOATS; // Fuerza maximo.
+  scheduler->maxReadyQueueConfigured = limit; // Asigna limite.
+} // Fin de ship_scheduler_set_max_ready_queue.
+
+uint8_t ship_scheduler_get_max_ready_queue(const ShipScheduler *scheduler) { // Lee cola maxima.
+  if (!scheduler) return MAX_BOATS; // Retorna default.
+  if (scheduler->maxReadyQueueConfigured == 0 || scheduler->maxReadyQueueConfigured > MAX_BOATS) return MAX_BOATS; // Normaliza.
+  return scheduler->maxReadyQueueConfigured; // Retorna limite.
+} // Fin de ship_scheduler_get_max_ready_queue.
+
+void ship_scheduler_set_channel_length(ShipScheduler *scheduler, uint16_t meters) { // Ajusta largo del canal.
+  if (!scheduler) return; // Valida puntero.
+  if (meters == 0) meters = 1; // Fuerza minimo valido.
+  scheduler->channelLengthMeters = meters; // Asigna largo.
+} // Fin de ship_scheduler_set_channel_length.
+
+uint16_t ship_scheduler_get_channel_length(const ShipScheduler *scheduler) { // Lee largo del canal.
+  if (!scheduler) return 0; // Retorna cero si es nulo.
+  return scheduler->channelLengthMeters; // Retorna largo.
+} // Fin de ship_scheduler_get_channel_length.
+
+void ship_scheduler_set_boat_speed(ShipScheduler *scheduler, uint16_t metersPerSec) { // Ajusta velocidad base.
+  if (!scheduler) return; // Valida puntero.
+  if (metersPerSec == 0) metersPerSec = 1; // Fuerza minimo valido.
+  scheduler->boatSpeedMetersPerSec = metersPerSec; // Asigna velocidad.
+} // Fin de ship_scheduler_set_boat_speed.
+
+uint16_t ship_scheduler_get_boat_speed(const ShipScheduler *scheduler) { // Lee velocidad base.
+  if (!scheduler) return 0; // Retorna cero si es nulo.
+  return scheduler->boatSpeedMetersPerSec; // Retorna velocidad.
+} // Fin de ship_scheduler_get_boat_speed.
+
+void ship_scheduler_set_flow_logging(ShipScheduler *scheduler, bool enabled) { // Ajusta trazas de flujo.
+  if (!scheduler) return; // Valida puntero.
+  scheduler->flowLoggingEnabled = enabled; // Aplica valor.
+} // Fin de ship_scheduler_set_flow_logging.
+
+bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler) { // Lee trazas de flujo.
+  if (!scheduler) return false; // Retorna default.
+  return scheduler->flowLoggingEnabled; // Retorna estado.
+} // Fin de ship_scheduler_get_flow_logging.
+
 static int findIndexForAlgo(ShipAlgo algo, Boat *readyQueue[], uint8_t readyCount) { // Selecciona indice segun algoritmo. 
-  if (readyCount == 0) return -1; // Si no hay listos, retorna -1. 
-  int best = 0; // Indice mejor por defecto. 
-  if (algo == ALG_FCFS || algo == ALG_RR) return 0; // FCFS/RR eligen el primero. 
-
-  if (algo == ALG_SJF) { // Caso SJF. 
-    unsigned long minService = readyQueue[0]->serviceMillis; // Tiempo de servicio minimo. 
-    unsigned long bestArrival = readyQueue[0]->arrivalOrder; // Orden de llegada para desempate. 
-    for (uint8_t i = 1; i < readyCount; i++) { // Recorre la cola. 
-      unsigned long candidateService = readyQueue[i]->serviceMillis; // Tiempo de servicio candidato. 
-      unsigned long candidateArrival = readyQueue[i]->arrivalOrder; // Orden de llegada candidato. 
-      if (candidateService < minService || 
-          (candidateService == minService && candidateArrival < bestArrival)) { // Compara servicio y llegada. 
-        minService = candidateService; // Actualiza minimo. 
-        bestArrival = candidateArrival; // Actualiza orden. 
-        best = i; // Actualiza indice. 
-      } 
-    } 
-    return best; // Retorna el mejor. 
-  } 
-
-  if (algo == ALG_STRN) { // Caso STRN. 
-    unsigned long minRem = readyQueue[0]->remainingMillis; // Tiempo restante minimo. 
-    for (uint8_t i = 1; i < readyCount; i++) { // Recorre la cola. 
-      if (readyQueue[i]->remainingMillis < minRem) { // Si encuentra menor. 
-        minRem = readyQueue[i]->remainingMillis; // Actualiza minimo. 
-        best = i; // Actualiza indice. 
-      } 
-    } 
-    return best; // Retorna el mejor. 
-  } 
-
-  if (algo == ALG_PRIORITY) { // Caso prioridad. 
-    uint8_t bestPriority = readyQueue[0]->priority; // Mejor prioridad inicial. 
-    unsigned long bestArrival = readyQueue[0]->arrivalOrder; // Mejor orden inicial. 
-    for (uint8_t i = 1; i < readyCount; i++) { // Recorre la cola. 
-      uint8_t candidatePriority = readyQueue[i]->priority; // Prioridad candidata. 
-      unsigned long candidateArrival = readyQueue[i]->arrivalOrder; // Orden candidato. 
-      if (candidatePriority > bestPriority ||
-          (candidatePriority == bestPriority && candidateArrival < bestArrival)) { // Compara prioridad y orden. 
-        bestPriority = candidatePriority; // Actualiza prioridad. 
-        bestArrival = candidateArrival; // Actualiza orden. 
-        best = i; // Actualiza indice. 
-      } 
-    } 
-    return best; // Retorna el mejor. 
-  } 
-
-  if (algo == ALG_EDF) { // Caso EDF. 
-    unsigned long minDead = readyQueue[0]->deadlineMillis; // Deadline minimo. 
-    for (uint8_t i = 1; i < readyCount; i++) { // Recorre la cola. 
-      if (readyQueue[i]->deadlineMillis < minDead) { // Si encuentra menor. 
-        minDead = readyQueue[i]->deadlineMillis; // Actualiza minimo. 
-        best = i; // Actualiza indice. 
-      } 
-    } 
-    return best; // Retorna el mejor. 
-  } 
-
-  return 0; // Retorno por defecto. 
+  return findIndexForAlgoAndSide(algo, readyQueue, readyCount, false, SIDE_LEFT); // Delega selector sin filtro de lado.
 } // Fin de findIndexForAlgo. 
+
+static void ship_scheduler_tick_sign(ShipScheduler *scheduler) { // Actualiza letrero por tiempo.
+  if (!scheduler || scheduler->flowMode != FLOW_SIGN) return; // Aplica solo en modo letrero.
+  if (scheduler->signIntervalMillis == 0) return; // Evita intervalos invalidos.
+  unsigned long now = millis(); // Lee reloj actual.
+  if (now - scheduler->signLastSwitchAt >= scheduler->signIntervalMillis) { // Verifica vencimiento.
+    scheduler->signDirection = opposite_side(scheduler->signDirection); // Alterna lado del letrero.
+    scheduler->signLastSwitchAt = now; // Guarda el instante del cambio.
+    ship_logf("Letrero -> %s\n", boatSideName(scheduler->signDirection)); // Reporta cambio.
+    FLOW_LOG(scheduler, "[FLOW][SIGN] Cambio de direccion por tiempo. Nueva=%s\n", boatSideName(scheduler->signDirection)); // Traza de cambio.
+  }
+} // Fin de ship_scheduler_tick_sign.
+
+static int ship_scheduler_select_next_index(ShipScheduler *scheduler) { // Selecciona el siguiente indice segun algoritmo y flujo.
+  if (!scheduler || scheduler->readyCount == 0) return -1; // Valida estado.
+
+  if (scheduler->flowMode == FLOW_TICO) { // Tico no restringe el lado.
+    FLOW_LOG(scheduler, "[FLOW][TICO] Seleccion libre por algoritmo %s\n", ship_scheduler_get_algorithm_label(scheduler)); // Traza de seleccion tico.
+    return findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Elige por algoritmo.
+  }
+
+  if (scheduler->flowMode == FLOW_SIGN) { // Modo letrero.
+    BoatSide allowed = scheduler->signDirection; // Lado permitido por letrero.
+    BoatSide fallback = opposite_side(allowed); // Lado alterno para no bloquear flujo.
+    if (queue_has_side(scheduler, allowed)) { // Si hay barcos del lado permitido.
+      FLOW_LOG(scheduler, "[FLOW][SIGN] Letrero=%s, seleccionando ese lado\n", boatSideName(allowed)); // Traza lado permitido.
+      return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, allowed); // Elige permitido.
+    }
+    FLOW_LOG(scheduler, "[FLOW][SIGN] Letrero=%s sin barcos; fallback a %s\n", boatSideName(allowed), boatSideName(fallback)); // Traza fallback.
+    return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, fallback); // Garantiza flujo.
+  }
+
+  if (scheduler->flowMode == FLOW_FAIRNESS) { // Modo equidad con ventana W.
+    uint8_t w = scheduler->fairnessWindowW == 0 ? 1 : scheduler->fairnessWindowW; // Normaliza W.
+    BoatSide current = scheduler->fairnessCurrentSide; // Lado actual de la ventana.
+    BoatSide opposite = opposite_side(current); // Lado alterno.
+    bool hasCurrent = queue_has_side(scheduler, current); // Disponibilidad lado actual.
+    bool hasOpposite = queue_has_side(scheduler, opposite); // Disponibilidad lado opuesto.
+
+    if (hasCurrent && !hasOpposite) { // Solo hay barcos del lado actual.
+      FLOW_LOG(scheduler, "[FLOW][FAIR] Solo hay barcos en %s; continuo sin alternar\n", boatSideName(current)); // Traza continuidad.
+      return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, current); // Mantiene flujo.
+    }
+
+    if (!hasCurrent && hasOpposite) { // Solo hay barcos del lado opuesto.
+      scheduler->fairnessCurrentSide = opposite; // Cambia lado activo para no bloquear.
+      scheduler->fairnessPassedInWindow = 0; // Reinicia ventana.
+      FLOW_LOG(scheduler, "[FLOW][FAIR] Lado %s vacio; cambio inmediato a %s\n", boatSideName(current), boatSideName(opposite)); // Traza cambio por vacio.
+      return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, opposite); // Atiende lado disponible.
+    }
+
+    if (!hasCurrent && !hasOpposite) return -1; // No hay barcos en cola.
+
+    if (scheduler->fairnessPassedInWindow >= w) { // Si se completo la cuota W.
+      scheduler->fairnessCurrentSide = opposite; // Alterna lado.
+      scheduler->fairnessPassedInWindow = 0; // Reinicia conteo de ventana.
+      FLOW_LOG(scheduler, "[FLOW][FAIR] Se cumplio W=%u; alterno a %s\n", w, boatSideName(scheduler->fairnessCurrentSide)); // Traza alternancia.
+    }
+
+    FLOW_LOG(scheduler, "[FLOW][FAIR] Ventana actual lado=%s usados=%u/%u\n", boatSideName(scheduler->fairnessCurrentSide), scheduler->fairnessPassedInWindow, w); // Traza ventana.
+    return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, scheduler->fairnessCurrentSide); // Atiende lado de ventana.
+  }
+
+  return findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Fallback.
+} // Fin de ship_scheduler_select_next_index.
 
 void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un barco nuevo. 
   if (!scheduler || !boat) return; // Valida punteros. 
   scheduler->ignoreCompletions = false; // Habilita callbacks. 
-  if (scheduler->readyCount >= MAX_BOATS || ship_scheduler_get_waiting_count(scheduler, boat->origin) >= 3) { // Verifica limites. 
+  if (scheduler->readyCount >= MAX_BOATS || scheduler->readyCount >= ship_scheduler_get_max_ready_queue(scheduler)) { // Verifica limites. 
     ship_logln("Cola llena; no se agrego el barco."); // Informa cola llena. 
     destroyBoat(boat); // Libera el barco. 
     return; // Termina. 
@@ -296,21 +485,25 @@ static void ship_scheduler_requeue_boat(ShipScheduler *scheduler, Boat *boat, bo
 static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecciona y arranca el siguiente barco. 
   if (!scheduler || scheduler->readyCount == 0) return; // Valida estado. 
 
-  int idx = findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Busca el mejor. 
+  int idx = ship_scheduler_select_next_index(scheduler); // Busca el mejor segun politica completa. 
   if (idx < 0) return; // Sale si no hay indice. 
 
   Boat *b = scheduler->readyQueue[idx]; // Selecciona el barco. 
   for (uint8_t i = idx + 1; i < scheduler->readyCount; i++) scheduler->readyQueue[i - 1] = scheduler->readyQueue[i]; // Compacta cola. 
   scheduler->readyCount--; // Reduce contador. 
 
-  if (scheduler->algorithm == ALG_STRN && scheduler->hasActiveBoat && scheduler->activeBoat) { // Preempcion STRN. 
-    if (scheduler->activeBoat->remainingMillis > b->remainingMillis) { // Si el nuevo es mas corto. 
-      Boat *preempted = scheduler->activeBoat; // Guarda el activo. 
-      scheduler->hasActiveBoat = false; // Limpia flag. 
-      scheduler->activeBoat = NULL; // Limpia activo. 
-      ship_scheduler_requeue_boat(scheduler, preempted, true); // Reencola el activo. 
-    } 
-  } 
+  if (scheduler->hasActiveBoat && scheduler->activeBoat && scheduler->activeBoat->origin != b->origin) { // Verifica colision por sentidos opuestos.
+    scheduler->collisionDetections++; // Registra intento de colision.
+    ship_logf("Colision evitada entre sentidos opuestos (#%u y #%u).\n", scheduler->activeBoat->id, b->id); // Reporta evento.
+    FLOW_LOG(scheduler, "[FLOW][SAFE] Requeue por seguridad: activo #%u (%s), candidato #%u (%s)\n", scheduler->activeBoat->id, boatSideName(scheduler->activeBoat->origin), b->id, boatSideName(b->origin)); // Traza de seguridad.
+    ship_scheduler_requeue_boat(scheduler, b, true); // Reencola el barco para reintento.
+    return; // No inicia para evitar choque.
+  }
+
+  if (scheduler->flowMode == FLOW_FAIRNESS && b->origin == scheduler->fairnessCurrentSide) { // Acumula ventana solo al despachar lado vigente.
+    scheduler->fairnessPassedInWindow++; // Incrementa barcos despachados en ventana W.
+    FLOW_LOG(scheduler, "[FLOW][FAIR] Despachado #%u lado=%s ventana=%u/%u\n", b->id, boatSideName(b->origin), scheduler->fairnessPassedInWindow, ship_scheduler_get_fairness_window(scheduler)); // Traza de despacho.
+  }
 
   b->state = STATE_CROSSING; // Cambia estado a cruzando. 
   if (b->startedAt == 0) b->startedAt = millis(); // Marca inicio si aplica. 
@@ -359,6 +552,8 @@ static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler) { // Fin
 
 void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de planificacion. 
   if (!scheduler) return; // Valida puntero. 
+
+  ship_scheduler_tick_sign(scheduler); // Actualiza cambio de direccion para modo letrero.
 
   if (scheduler->hasActiveBoat && scheduler->activeBoat) { // Si hay activo. 
     if (scheduler->activeBoat->remainingMillis == 0) { // Si ya termino. 
@@ -429,6 +624,10 @@ uint16_t ship_scheduler_get_completed_total(const ShipScheduler *scheduler) { //
   return scheduler ? scheduler->completedTotal : 0; // Retorna contador o cero. 
 } // Fin de ship_scheduler_get_completed_total. 
 
+uint16_t ship_scheduler_get_collision_detections(const ShipScheduler *scheduler) { // Devuelve colisiones detectadas.
+  return scheduler ? scheduler->collisionDetections : 0; // Retorna contador o cero.
+} // Fin de ship_scheduler_get_collision_detections.
+
 unsigned long ship_scheduler_get_total_wait_millis(const ShipScheduler *scheduler) { // Devuelve espera total. 
   return scheduler ? scheduler->totalWaitMillis : 0; // Retorna acumulado o cero. 
 } // Fin de ship_scheduler_get_total_wait_millis. 
@@ -488,6 +687,10 @@ void ship_scheduler_dump_status(const ShipScheduler *scheduler) { // Imprime est
   if (!scheduler) return; // Valida puntero. 
   ship_logln("--- Scheduler Status ---"); // Encabezado. 
   ship_logf("Algorithm: %s\n", ship_scheduler_get_algorithm_label(scheduler)); // Algoritmo actual. 
+  ship_logf("Flow: %s\n", ship_scheduler_get_flow_mode_label(scheduler)); // Metodo de flujo.
+  ship_logf("W=%u Sign=%s/%lums QueueMax=%u\n", ship_scheduler_get_fairness_window(scheduler), boatSideName(ship_scheduler_get_sign_direction(scheduler)), ship_scheduler_get_sign_interval(scheduler), ship_scheduler_get_max_ready_queue(scheduler)); // Parametros de flujo.
+  ship_logf("Canal=%um Vel=%um/s Collisions=%u\n", ship_scheduler_get_channel_length(scheduler), ship_scheduler_get_boat_speed(scheduler), ship_scheduler_get_collision_detections(scheduler)); // Parametros de canal y colisiones.
+  ship_logf("FlowLog: %s\n", ship_scheduler_get_flow_logging(scheduler) ? "ON" : "OFF"); // Estado de trazas de flujo.
   ship_logf("Ready count: %u\n", scheduler->readyCount); // Cantidad en cola. 
   for (uint8_t i = 0; i < scheduler->readyCount; i++) { // Recorre cola. 
     Boat *b = scheduler->readyQueue[i]; // Obtiene barco. 

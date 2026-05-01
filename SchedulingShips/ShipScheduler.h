@@ -15,6 +15,12 @@ typedef enum ShipAlgo { // Enumeracion de algoritmos.
   ALG_PRIORITY = 5 // Prioridad estatica. 
 } ShipAlgo; // Alias del enum de algoritmos. 
 
+typedef enum ShipFlowMode { // Modo de control de flujo del canal.
+  FLOW_TICO = 0, // Sin control de turno por lado.
+  FLOW_FAIRNESS = 1, // Ventana W alternando lados.
+  FLOW_SIGN = 2 // Letrero por tiempo.
+} ShipFlowMode; // Alias del enum de flujo.
+
 typedef struct ShipScheduler { // Estructura con el estado del scheduler. 
   Boat *readyQueue[MAX_BOATS]; // Cola de listos (punteros). 
   uint8_t readyCount; // Cantidad de barcos listos. 
@@ -32,6 +38,18 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   bool ignoreCompletions; // Ignora callbacks tardios. 
   ShipAlgo algorithm; // Algoritmo activo. 
   unsigned long rrQuantumMillis; // Quantum de RR. 
+  ShipFlowMode flowMode; // Metodo de control de flujo.
+  uint8_t fairnessWindowW; // Parametro W para equidad.
+  BoatSide fairnessCurrentSide; // Lado actual de la ventana W.
+  uint8_t fairnessPassedInWindow; // Cuantos barcos pasaron en la ventana.
+  BoatSide signDirection; // Direccion actual del letrero.
+  unsigned long signIntervalMillis; // Periodo de cambio del letrero.
+  unsigned long signLastSwitchAt; // Ultimo cambio de letrero.
+  uint8_t maxReadyQueueConfigured; // Limite de cola configurable.
+  uint16_t channelLengthMeters; // Largo del canal configurado.
+  uint16_t boatSpeedMetersPerSec; // Velocidad base del barco.
+  uint16_t collisionDetections; // Contador de colisiones detectadas.
+  bool flowLoggingEnabled; // Habilita trazas de decisiones de flujo.
 } ShipScheduler; // Alias del tipo scheduler. 
 
 void ship_scheduler_begin(ShipScheduler *scheduler); // Inicializa el scheduler. 
@@ -44,6 +62,23 @@ ShipAlgo ship_scheduler_get_algorithm(const ShipScheduler *scheduler); // Obtien
 const char *ship_scheduler_get_algorithm_label(const ShipScheduler *scheduler); // Texto corto del algoritmo. 
 void ship_scheduler_set_round_robin_quantum(ShipScheduler *scheduler, unsigned long quantumMillis); // Ajusta quantum. 
 unsigned long ship_scheduler_get_round_robin_quantum(const ShipScheduler *scheduler); // Lee quantum. 
+void ship_scheduler_set_flow_mode(ShipScheduler *scheduler, ShipFlowMode mode); // Ajusta metodo de flujo.
+ShipFlowMode ship_scheduler_get_flow_mode(const ShipScheduler *scheduler); // Lee metodo de flujo.
+const char *ship_scheduler_get_flow_mode_label(const ShipScheduler *scheduler); // Texto del metodo de flujo.
+void ship_scheduler_set_fairness_window(ShipScheduler *scheduler, uint8_t windowW); // Ajusta parametro W.
+uint8_t ship_scheduler_get_fairness_window(const ShipScheduler *scheduler); // Lee parametro W.
+void ship_scheduler_set_sign_direction(ShipScheduler *scheduler, BoatSide side); // Ajusta direccion del letrero.
+BoatSide ship_scheduler_get_sign_direction(const ShipScheduler *scheduler); // Lee direccion del letrero.
+void ship_scheduler_set_sign_interval(ShipScheduler *scheduler, unsigned long intervalMillis); // Ajusta periodo del letrero.
+unsigned long ship_scheduler_get_sign_interval(const ShipScheduler *scheduler); // Lee periodo del letrero.
+void ship_scheduler_set_max_ready_queue(ShipScheduler *scheduler, uint8_t limit); // Ajusta cola maxima.
+uint8_t ship_scheduler_get_max_ready_queue(const ShipScheduler *scheduler); // Lee cola maxima.
+void ship_scheduler_set_channel_length(ShipScheduler *scheduler, uint16_t meters); // Ajusta largo del canal.
+uint16_t ship_scheduler_get_channel_length(const ShipScheduler *scheduler); // Lee largo del canal.
+void ship_scheduler_set_boat_speed(ShipScheduler *scheduler, uint16_t metersPerSec); // Ajusta velocidad base.
+uint16_t ship_scheduler_get_boat_speed(const ShipScheduler *scheduler); // Lee velocidad base.
+void ship_scheduler_set_flow_logging(ShipScheduler *scheduler, bool enabled); // Activa/desactiva trazas de flujo.
+bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler); // Lee estado de trazas de flujo.
 
 const Boat *ship_scheduler_get_active_boat(const ShipScheduler *scheduler); // Devuelve barco activo. 
 uint8_t ship_scheduler_get_ready_count(const ShipScheduler *scheduler); // Devuelve listos. 
@@ -54,6 +89,7 @@ uint16_t ship_scheduler_get_completed_left_to_right(const ShipScheduler *schedul
 uint16_t ship_scheduler_get_completed_right_to_left(const ShipScheduler *scheduler); // Devuelve completados der-izq. 
 unsigned long ship_scheduler_get_active_elapsed_millis(const ShipScheduler *scheduler); // Devuelve tiempo activo. 
 uint16_t ship_scheduler_get_completed_total(const ShipScheduler *scheduler); // Devuelve completados totales. 
+uint16_t ship_scheduler_get_collision_detections(const ShipScheduler *scheduler); // Devuelve colisiones detectadas.
 unsigned long ship_scheduler_get_total_wait_millis(const ShipScheduler *scheduler); // Devuelve espera acumulada. 
 unsigned long ship_scheduler_get_total_turnaround_millis(const ShipScheduler *scheduler); // Devuelve turnaround acumulado. 
 unsigned long ship_scheduler_get_total_service_millis(const ShipScheduler *scheduler); // Devuelve servicio acumulado. 

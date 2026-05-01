@@ -10,10 +10,10 @@
 
 
 ## Canal y Control de Flujo
-- [ ] Equidad (W parameter)
-- [ ] Letrero (dirección alternante)
-- [ ] Tico (sin control)
-- [ ] Detección de colisiones
+- [x] Equidad (W parameter)
+- [x] Letrero (dirección alternante)
+- [x] Tico (sin control)
+- [x] Detección de colisiones
 - [x] Movimiento de barcos
 
 ## Barcos
@@ -44,14 +44,14 @@
 - [ ] Integración tareas↔scheduler
 
 ## Configuración
-- [ ] Parsear config.txt
+- [x] Parsear config.txt
 - [ ] Parsear ships.txt
 - [ ] Validación de parámetros
 
 ## Testing
 - [x] Test de cada scheduler
-- [ ] Test de algoritmos flujo
-- [ ] Test de colisiones
+- [x] Test de algoritmos flujo
+- [x] Test de colisiones
 - [ ] Test de sensor
 - [ ] Sin segfault/crashes
 
