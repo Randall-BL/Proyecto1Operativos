@@ -39,6 +39,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     ship_logln("          flow <tico|fair|sign> | w <n> | sign <l|r> | signms <ms>"); // Lista flujo.
     ship_logln("          flowlog <on|off>"); // Trazas de flujo.
     ship_logln("          sensor <activate|deactivate|threshold|simulate> [param]"); // Sensor.
+    ship_logln("          proxpin <trig> <echo> | proxpollms <ms>"); // Sensor fisico.
     ship_logln("          emergency <clear>"); // Emergencias.
     ship_logln("          chanlen <m> | boatspeed <mps> | readymax <n>"); // Lista canal.
     ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf|flow]"); // Lista tests. 

@@ -160,7 +160,7 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   scheduler->collisionDetections = 0; // Reinicia contador de colisiones.
   // Inicializa sensor e interrupciones
   scheduler->sensorActive = false; // Sensor deshabilitado por defecto.
-  scheduler->proximityThresholdCm = 150; // Umbral de 150cm por defecto.
+  scheduler->proximityThresholdCm = 10; // Umbral de 10cm por defecto.
   scheduler->proximityCurrentDistanceCm = 999; // Distancia inicial "lejana".
   scheduler->proximityDistanceIsSimulated = false; // Distancia real por defecto.
   scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.
@@ -381,7 +381,7 @@ void ship_scheduler_set_proximity_distance(ShipScheduler *scheduler, uint16_t cm
   scheduler->proximityCurrentDistanceCm = cm; // Aplica distancia.
   scheduler->proximityDistanceIsSimulated = false; // Marca entrada como real.
   // Verifica si se activa la emergencia por proximidad
-  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm < scheduler->proximityThresholdCm) {
+  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm <= scheduler->proximityThresholdCm) {
     ship_logf("[SENSOR] ALERTA: Barco a %u cm (umbral: %u cm)\n", cm, scheduler->proximityThresholdCm);
     ship_scheduler_trigger_emergency(scheduler);
   }
@@ -392,7 +392,7 @@ void ship_scheduler_set_proximity_distance_simulated(ShipScheduler *scheduler, u
   scheduler->proximityCurrentDistanceCm = cm; // Aplica distancia simulada.
   scheduler->proximityDistanceIsSimulated = true; // Marca que viene de simulate.
   // Verifica si se activa la emergencia por proximidad
-  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm < scheduler->proximityThresholdCm) {
+  if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE && cm <= scheduler->proximityThresholdCm) {
     ship_logf("[SENSOR] ALERTA: Barco a %u cm (umbral: %u cm)\n", cm, scheduler->proximityThresholdCm);
     ship_scheduler_trigger_emergency(scheduler);
   }
@@ -852,7 +852,7 @@ void ship_scheduler_update_emergency(ShipScheduler *scheduler) { // Actualiza es
   
   // Si el sensor esta activo, revisa la distancia actual
   if (scheduler->sensorActive && scheduler->emergencyMode == EMERGENCY_NONE) {
-    if (scheduler->proximityCurrentDistanceCm < scheduler->proximityThresholdCm) {
+    if (scheduler->proximityCurrentDistanceCm <= scheduler->proximityThresholdCm) {
       ship_scheduler_trigger_emergency(scheduler); // Activa emergencia.
     }
   }

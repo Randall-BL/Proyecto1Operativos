@@ -17,7 +17,7 @@ import re
 import os
 
 class SchedulingShipsDisplay:
-    def __init__(self, root, port='COM5', baudrate=115200):
+    def __init__(self, root, port='COM6', baudrate=115200):
         self.root = root
         self.root.title("Scheduling Ships - Display + Serial Monitor")
         self.root.geometry("1200x700")
@@ -713,7 +713,7 @@ class SchedulingShipsDisplay:
 
 if __name__ == '__main__':
     root = tk.Tk()
-    # Cambiar COM5 al puerto que uses (COM4, COM5, etc. en Windows, /dev/ttyUSB0 en Linux)
-    app = SchedulingShipsDisplay(root, port='COM5', baudrate=115200)
+    # Cambiar COM6 al puerto que uses (COM4, COM6, etc. en Windows, /dev/ttyUSB0 en Linux)
+    app = SchedulingShipsDisplay(root, port='COM6', baudrate=115200)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
