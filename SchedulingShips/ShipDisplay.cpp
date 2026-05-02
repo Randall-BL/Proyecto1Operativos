@@ -1,9 +1,14 @@
 #include "ShipDisplay.h" // Declara la API C de la pantalla. 
 #include "ShipPins.h" // Define los pines de la TFT. 
+#include "ShipIO.h" // Logging por serial (para mensajes de debug si hace falta).
+
 #include <SPI.h> // Libreria SPI usada por la TFT. 
 #include <Adafruit_GFX.h> // Base grafica de Adafruit. 
 #include <Adafruit_ST7735.h> // Driver de la TFT ST7735. 
 #include <stdint.h> // Tipos enteros de ancho fijo. 
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 // Colores y constantes de diseno de la interfaz. 
 static const uint16_t SHIP_DARK_GREY = 0x7BEF; // Gris oscuro para bordes. 
@@ -32,6 +37,9 @@ static Adafruit_ST7735 gTft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST); // Drive
 static unsigned long gLastUiRefresh = 0; // Marca del ultimo refresco. 
 static bool gLayoutDrawn = false; // Marca si el layout base ya se dibujo. 
 static ShipAlgo gLastAlgorithm = ALG_FCFS; // Ultimo algoritmo mostrado. 
+
+// Mutex para proteger accesos concurrentes a la pantalla
+static SemaphoreHandle_t gDisplayMutex = NULL;
 
 // Estado de dibujo para evitar parpadeo: trackear la posicion previa del barco activo
 static int16_t gPrevBoatX = -1;
@@ -216,10 +224,35 @@ void ship_display_begin(void) { // Entrada publica de inicializacion.
   gTft.initR(INITR_BLACKTAB); // Inicializa el driver ST7735. 
   gTft.setRotation(1); // Rota para modo horizontal. 
   gTft.fillScreen(ST77XX_BLACK); // Limpia la pantalla. 
+
+  // Crear mutex para acceso concurrente desde tareas
+  if (gDisplayMutex == NULL) {
+    gDisplayMutex = xSemaphoreCreateMutex();
+    if (gDisplayMutex == NULL) {
+      ship_logln("[DISPLAY] No se pudo crear mutex de pantalla");
+    }
+  }
+
+  gLastUiRefresh = 0; // Fuerza primer redibujo.
 } 
 
-// API C: render completo. 
+// API C: render completo (adquirir mutex internamente). 
 void ship_display_render(const ShipScheduler *scheduler) { // Entrada publica de render. 
+  // Intentamos tomar el mutex; si falla por timeout, abortamos el render
+  if (gDisplayMutex) {
+    if (xSemaphoreTake(gDisplayMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+      ship_logln("[DISPLAY] mutex ocupado, omitiendo render");
+      return;
+    }
+  }
+
+  unsigned long now = millis();
+  if (now - gLastUiRefresh < UI_REFRESH_MS) {
+    if (gDisplayMutex) xSemaphoreGive(gDisplayMutex);
+    return;
+  }
+  gLastUiRefresh = now;
+
   ShipAlgo currentAlgo = ship_scheduler_get_algorithm(scheduler); // Algoritmo actual. 
   if (!gLayoutDrawn || currentAlgo != gLastAlgorithm) { // Si el layout cambia. 
     drawStaticLayout(ship_scheduler_get_algorithm_label(scheduler)); // Dibuja layout base. 
@@ -231,14 +264,11 @@ void ship_display_render(const ShipScheduler *scheduler) { // Entrada publica de
   drawWaitingSide(scheduler, SIDE_RIGHT); // Dibuja cola derecha. 
   drawGateStatus(scheduler); // Dibuja estado de puertas (Abierto/Cerrado).
   drawStatistics(scheduler); // Dibuja estadisticas. 
+
+  if (gDisplayMutex) xSemaphoreGive(gDisplayMutex);
 } 
 
-// API C: render condicionado por tiempo. 
+// API C: alias mantenido por compatibilidad; ahora delega a ship_display_render
 void ship_display_render_if_needed(const ShipScheduler *scheduler) { // Entrada publica con limitador. 
-  if (millis() - gLastUiRefresh < UI_REFRESH_MS) { // Si no ha pasado el periodo. 
-    return; // Sale sin redibujar. 
-  } 
-
-  gLastUiRefresh = millis(); // Actualiza marca de tiempo. 
-  ship_display_render(scheduler); // Dibuja el frame. 
+  ship_display_render(scheduler);
 } 

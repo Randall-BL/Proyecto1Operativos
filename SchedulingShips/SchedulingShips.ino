@@ -75,5 +75,5 @@ void loop() { // Bucle principal Arduino.
   } // Fin de lectura de comandos. 
 
   ship_scheduler_update(&shipScheduler); // Avanza el scheduler. 
-  ship_display_render_if_needed(&shipScheduler); // Redibuja si toca por tiempo. 
+  delay(10); // Yield corto; cada barco (tarea) se encarga ahora de redibujar la pantalla.
 } // Fin del loop. 

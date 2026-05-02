@@ -5,6 +5,7 @@
 #include <stdlib.h> // malloc y free. 
 
 #include "ShipIO.h" // Logging por Serial. 
+#include "ShipDisplay.h" // API de pantalla (para que cada barco pueda redibujar). 
 
 ShipScheduler *gScheduler = NULL; // Puntero global para callbacks. 
 
@@ -95,6 +96,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
       if (cmd == NOTIF_CMD_RUN) { // Si run, inicia. 
         running = true; // Marca ejecucion activa. 
         b->allowedToMove = true; // Permite avanzar. 
+        if (gScheduler) ship_display_render(gScheduler); // Actualiza pantalla al arrancar.
       } 
       continue; // Repite el ciclo. 
     } 
@@ -111,12 +113,14 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         running = false; // Detiene ejecucion. 
         b->allowedToMove = false; // Bloquea movimiento. 
         interrupted = true; // Marca interrupcion. 
+        if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar estado terminado.
         break; // Sale del while interno. 
       } 
       if (cmd == NOTIF_CMD_PAUSE) { // Si pause. 
         running = false; // Detiene ejecucion. 
         b->allowedToMove = false; // Bloquea movimiento. 
         interrupted = true; // Marca interrupcion. 
+        if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar pausa.
         break; // Sale del while interno. 
       } 
 
@@ -134,10 +138,15 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     } else { // Si ya no queda tiempo. 
       b->remainingMillis = 0; // Fuerza a cero. 
     } 
+
+    // Cada paso del barco solicitamos un render (ship_display_render internally rate-limits and is mutex-protected)
+    if (gScheduler) ship_display_render(gScheduler);
   } 
 
   if (gScheduler) { // Si hay scheduler global. 
     ship_scheduler_notify_boat_finished(gScheduler, b); // Notifica finalizacion. 
+    // Una ultima actualizacion de pantalla para reflejar el cambio inmediato
+    ship_display_render(gScheduler);
   } 
 
   destroyBoat(b); // Libera el Boat. 
