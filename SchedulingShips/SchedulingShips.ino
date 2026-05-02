@@ -10,6 +10,7 @@
 #include "ShipScheduler.h" // Scheduler en C. 
 #include "ShipCommands.h" // Parser de comandos en C. 
 #include "ShipDisplay.h" // API C de la pantalla. 
+#include "ShipIO.h" // Logging C con bridge configurable.
 
 // Instancia global del scheduler en C. 
 ShipScheduler shipScheduler = {}; // Estado del scheduler inicializado a cero. 
@@ -20,6 +21,18 @@ static uint8_t gProxEchoPin = PROX_ECHO_PIN; // Pin ECHO configurable.
 static unsigned long gProxPollIntervalMs = 120; // Periodo de sondeo configurable.
 static unsigned long gProxLastPollAt = 0; // Ultimo instante de lectura.
 static bool gProxPinsConfigured = false; // Evita reconfigurar pines en cada ciclo.
+
+static void serial_write_bridge(const char *text) { // Bridge C -> Serial sin salto.
+  if (text) Serial.print(text);
+}
+
+static void serial_writeln_bridge(const char *text) { // Bridge C -> Serial con salto.
+  if (text) {
+    Serial.println(text);
+  } else {
+    Serial.println();
+  }
+}
 
 static void configure_proximity_sensor_pins() { // Configura pines del sensor.
   pinMode(gProxTrigPin, OUTPUT); // TRIG como salida.
@@ -147,6 +160,8 @@ void setup() { // Funcion de inicializacion Arduino.
   } // Fin del bucle de espera. 
 
   Serial.println("Sistema Scheduling Ships iniciado."); // Mensaje de arranque. 
+
+  ship_io_set_writers(serial_write_bridge, serial_writeln_bridge); // Conecta logs C a Serial.
 
   ship_display_begin(); // Inicializa la pantalla TFT. 
   ship_scheduler_begin(&shipScheduler); // Inicializa el scheduler. 
