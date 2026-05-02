@@ -829,14 +829,14 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
       scheduler->readyQueue[scheduler->readyCount] = activeBoat; // Lo agrega al final.
       scheduler->readyCount++; // Incrementa contador.
       ship_logf("[EMERGENCY] Barco #%u recolocado en cola en posicion %u (rem=%lu svc=%lu)\n", activeBoat->id, scheduler->readyCount - 1, activeBoat->remainingMillis, activeBoat->serviceMillis); // Confirma recolocacion y tiempos.
-      
-      // Fuerza actualización inmediata de pantalla para mostrar barco en cola
-      if (scheduler) ship_display_render(scheduler);
     } else {
       ship_logf("[EMERGENCY] Cola llena: barco #%u no puede recolocarse, se destruye\n", activeBoat->id); // Error: cola llena.
       destroyBoat(activeBoat); // Destruye si no cabe.
     }
   }
+
+  // Fuerza actualización inmediata de pantalla sin respetar rate limit durante emergencia
+  if (scheduler) ship_display_render_forced(scheduler);
 
   scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
   ship_logln("[EMERGENCY] Modo: RECOVERY (esperando apertura de compuertas)"); // Log estado.

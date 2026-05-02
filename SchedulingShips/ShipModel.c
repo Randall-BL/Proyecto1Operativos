@@ -55,9 +55,9 @@ uint16_t boatColor(BoatType type) { // Devuelve color RGB565 por tipo.
 unsigned long serviceTimeForType(BoatType type) { // Devuelve el tiempo base por tipo. 
   // Define el tiempo base de servicio segun el tipo de barco. // Comentario funcional. 
   switch (type) { // Selecciona segun el tipo. 
-    case BOAT_NORMAL: return 8500; // Tiempo para normal. 
-    case BOAT_PESQUERA: return 6500; // Tiempo para pesquera. 
-    case BOAT_PATRULLA: return 4000; // Tiempo para patrulla. 
+    case BOAT_NORMAL: return 2500; // Tiempo para normal. 
+    case BOAT_PESQUERA: return 1500; // Tiempo para pesquera. 
+    case BOAT_PATRULLA: return 1000; // Tiempo para patrulla. 
   } // Fin del switch. 
   return 5000; // Tiempo por defecto. 
 } // Fin de serviceTimeForType. 

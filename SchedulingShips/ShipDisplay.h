@@ -22,6 +22,8 @@ void ship_display_begin(void); // Arranque de la pantalla y del estado interno.
 void ship_display_render(const ShipScheduler *scheduler); // Dibujo completo con el estado actual. 
 // Renderiza solo si se cumple el tiempo de refresco. 
 void ship_display_render_if_needed(const ShipScheduler *scheduler); // Dibujo limitado por UI_REFRESH_MS. 
+// Renderiza forzadamente sin respetar el rate limit (para eventos críticos como emergencias).
+void ship_display_render_forced(const ShipScheduler *scheduler); // Fuerza render inmediato ignorando rate limit.
 
 // Funciones de logica (calculo), no renderizacion.
 int16_t ship_display_map_progress(unsigned long elapsed, unsigned long total, int16_t from, int16_t to);

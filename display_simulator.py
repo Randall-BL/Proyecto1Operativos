@@ -51,12 +51,8 @@ class SchedulingShipsDisplay:
             'active': False,
         }
 
-        # Tiempos por tipo para la animación visual solamente.
-        self.service_time_by_type_ms = {
-            'normal': 6500,
-            'pesquera': 4500,
-            'patrulla': 3000,
-        }
+        # Tiempos por tipo cargados desde ShipModel.c.
+        self.service_time_by_type_ms = {}
 
         # Intenta cargar los tiempos desde el fichero C para mantener sincronía
         try:
@@ -355,8 +351,12 @@ class SchedulingShipsDisplay:
 
     def duration_for_boat_type(self, boat_type):
         if not boat_type:
-            return 6.5
-        return self.service_time_by_type_ms.get(boat_type, 6500) / 1000.0
+            boat_type = 'normal'
+
+        duration_ms = self.service_time_by_type_ms.get(boat_type)
+        if duration_ms is None:
+            duration_ms = self.service_time_by_type_ms.get('normal', 0)
+        return duration_ms / 1000.0
 
     def origin_to_direction(self, boat_origin):
         if boat_origin == 'right':

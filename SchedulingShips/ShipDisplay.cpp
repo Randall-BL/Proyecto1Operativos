@@ -263,4 +263,13 @@ void ship_display_render(const ShipScheduler *scheduler) { // Entrada publica de
 // API C: alias mantenido por compatibilidad; ahora delega a ship_display_render
 void ship_display_render_if_needed(const ShipScheduler *scheduler) { // Entrada publica con limitador. 
   ship_display_render(scheduler);
-} 
+}
+
+// API C: renderiza forzadamente sin respetar el rate limit (para eventos críticos).
+void ship_display_render_forced(const ShipScheduler *scheduler) { // Fuerza render sin rate limit.
+  // Resetea el rate limit para forzar render inmediato
+  gLastUiRefresh = 0;
+  // Ahora llama al render normal que revisará el rate limit y verá que es hora de renderizar
+  ship_display_render(scheduler);
+}
+
