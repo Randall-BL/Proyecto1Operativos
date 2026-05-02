@@ -33,6 +33,13 @@ static unsigned long gLastUiRefresh = 0; // Marca del ultimo refresco.
 static bool gLayoutDrawn = false; // Marca si el layout base ya se dibujo. 
 static ShipAlgo gLastAlgorithm = ALG_FCFS; // Ultimo algoritmo mostrado. 
 
+// Estado de dibujo para evitar parpadeo: trackear la posicion previa del barco activo
+static int16_t gPrevBoatX = -1;
+static int16_t gPrevBoatY = -1;
+static int16_t gPrevBoatW = 0;
+static int16_t gPrevBoatH = 0;
+static uint8_t gPrevBoatId = 0;
+
 // Mapea el progreso temporal a una posicion en pixeles. 
 static int16_t mapProgress(unsigned long elapsed, unsigned long total, int16_t from, int16_t to) { // Funcion de mapeo lineal. 
   if (total == 0) { // Evita division por cero. 
@@ -114,8 +121,8 @@ static void drawWaitingSide(const ShipScheduler *scheduler, BoatSide side) { // 
 
 // Dibuja el barco activo en el canal. 
 static void drawActiveBoat(const ShipScheduler *scheduler) { // Render del activo. 
-  gTft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, 0x18E3); // Limpia canal. 
-  gTft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, 12, ST77XX_BLACK); // Banda superior del canal. 
+  // Solo limpiamos la banda de info; el resto lo hacemos por regiones para evitar parpadeo
+  gTft.fillRect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, 0x18E3); // Limpia banda de info.
 
   gTft.setTextSize(1); // Fuente base. 
   gTft.setTextColor(ST77XX_WHITE, ST77XX_BLACK); // Color del texto. 
@@ -136,7 +143,24 @@ static void drawActiveBoat(const ShipScheduler *scheduler) { // Render del activ
     if (boatX > maxX) boatX = maxX; // Corrige si es mayor. 
     int16_t boatY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2); // Y centrado. 
 
+    // Si es un barco distinto al anterior, borra la region completa del canal una vez
+    if (gPrevBoatId != activeBoat->id) {
+      gTft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, 0x18E3); // Limpia canal completo al cambiar de barco.
+    } else {
+      // Borra solo la posicion anterior del barco para evitar redibujado completo
+      if (gPrevBoatX >= 0 && gPrevBoatY >= 0) {
+        gTft.fillRect(gPrevBoatX, gPrevBoatY, gPrevBoatW, gPrevBoatH, 0x18E3);
+      }
+    }
+
     drawBoatSquare(boatX, boatY, activeBoat, true); // Dibuja el barco activo. 
+
+    // Actualiza estado previo
+    gPrevBoatId = activeBoat->id;
+    gPrevBoatX = boatX;
+    gPrevBoatY = boatY;
+    gPrevBoatW = BOAT_SIZE;
+    gPrevBoatH = BOAT_SIZE;
 
     gTft.fillRect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, 0x18E3); // Limpia banda de info. 
     gTft.setTextColor(ST77XX_WHITE, ST77XX_BLACK); // Color de info. 
