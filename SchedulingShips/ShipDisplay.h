@@ -1,36 +1,19 @@
-#pragma once
+#pragma once // Evita inclusiones duplicadas del header. 
+// API C para la pantalla; la implementacion usa C++ internamente. 
 
-#include "ShipPins.h"
-#include <SPI.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_ST7735.h>
+#ifdef __cplusplus // Habilita linkage C cuando se incluye desde C++. 
+extern "C" { // Inicio del bloque con nombres C. 
+#endif // Fin de la directiva de compatibilidad C++. 
 
-#include "ShipScheduler.h"
+#include "ShipScheduler.h" // Tipos y funciones del scheduler. 
 
-// Encargado de renderizar la interfaz en la pantalla TFT.
-class ShipDisplay {
-public:
-  // Inicializa la pantalla TFT y deja el fondo listo.
-  void begin();
-  // Renderiza un cuadro completo de la interfaz.
-  void render(const ShipScheduler &scheduler);
-  // Renderiza solo si paso el tiempo de refresco configurado.
-  void renderIfNeeded(const ShipScheduler &scheduler);
+// Inicializa la pantalla TFT y deja la interfaz lista. 
+void ship_display_begin(void); // Arranque de la pantalla y del estado interno. 
+// Renderiza el cuadro completo de la interfaz. 
+void ship_display_render(const ShipScheduler *scheduler); // Dibujo completo con el estado actual. 
+// Renderiza solo si se cumple el tiempo de refresco. 
+void ship_display_render_if_needed(const ShipScheduler *scheduler); // Dibujo limitado por UI_REFRESH_MS. 
 
-private:
-  // Dibuja el fondo estatico segun el algoritmo actual.
-  void drawStaticLayout(const char *algoLabel);
-  // Dibuja el icono de un barco con o sin resaltado.
-  void drawBoatSquare(int16_t x, int16_t y, const Boat &boat, bool highlight = false);
-  // Dibuja la cola de espera para un lado del canal.
-  void drawWaitingSide(const ShipScheduler &scheduler, BoatSide side);
-  // Dibuja el barco activo dentro del canal.
-  void drawActiveBoat(const ShipScheduler &scheduler);
-  // Dibuja las estadisticas del pie de pantalla.
-  void drawStatistics(const ShipScheduler &scheduler);
-
-  Adafruit_ST7735 tft = Adafruit_ST7735(TFT_CS, TFT_DC, TFT_RST);
-  unsigned long lastUiRefresh = 0;
-  bool layoutDrawn = false;
-  ShipScheduler::Algo lastAlgorithm = ShipScheduler::ALG_FCFS;
-};
+#ifdef __cplusplus // Cierra el bloque de linkage C. 
+} // Fin de extern "C". 
+#endif // Fin de compatibilidad C++. 

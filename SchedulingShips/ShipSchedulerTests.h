@@ -1,12 +1,15 @@
-#pragma once
+#pragma once // Evita inclusiones duplicadas. 
 
-#include "ShipScheduler.h"
+#ifdef __cplusplus // Habilita linkage C para C++. 
+extern "C" { // Inicio del bloque con nombres C. 
+#endif // Fin de compatibilidad C++. 
 
-class ShipDisplay;
+#include "ShipScheduler.h" // Tipos del scheduler para pruebas. 
 
-// Permite adjuntar una pantalla para visualizar pruebas (opcional).
-void setTestDisplay(ShipDisplay *display);
-// Ejecuta la bateria completa de pruebas para todos los algoritmos.
-void runSchedulerTests(ShipScheduler &scheduler);
-// Ejecuta una prueba de un algoritmo especifico.
-void runSchedulerTest(ShipScheduler &scheduler, ShipScheduler::Algo algo);
+void run_scheduler_tests(ShipScheduler *scheduler); // Ejecuta la bateria completa. 
+void run_scheduler_test(ShipScheduler *scheduler, ShipAlgo algo); // Ejecuta una prueba puntual. 
+void run_flow_control_tests(ShipScheduler *scheduler); // Ejecuta pruebas de control de flujo. 
+
+#ifdef __cplusplus // Cierra el bloque de linkage C. 
+} // Fin de extern "C". 
+#endif // Fin de compatibilidad C++. 
