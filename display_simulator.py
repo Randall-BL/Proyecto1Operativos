@@ -508,30 +508,34 @@ class SchedulingShipsDisplay:
                     self.crossing['paused'] = False
                     self.crossing['start_ts'] = time.time() - (self.crossing['pause_progress'] * self.crossing['duration_s'])
 
-            if "recolocado en cola" in line:
+            if "recolocado en cola" in line or "[EMERGENCY]" in line and "recolocado" in line:
+                self.serial_queue.put(("log", f"[SIM DEBUG] Detectado 'recolocado en cola' en línea: {line}"))
                 match = re.search(r'Barco #(\d+)', line)
                 if match:
                     boat_id = int(match.group(1))
+                    self.serial_queue.put(("log", f"[SIM DEBUG] Recolocando barco #{boat_id} en cola"))
                     boat_origin = self.boat_origin_by_id.get(boat_id, 'left')
                     boat_type = self.boat_type_by_id.get(boat_id)
                     boat_algorithm = self.state.get('algorithm', 'FCFS')
+                    self.serial_queue.put(("log", f"[SIM DEBUG] Origen={boat_origin}, Tipo={boat_type}, Algo={boat_algorithm}"))
                     self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm)
                     if self.crossing['boat_id'] == boat_id:
+                        self.serial_queue.put(("log", f"[SIM DEBUG] Limpiando estado activo para barco #{boat_id}"))
                         self.state['active_boat'] = None
                         self.crossing['active'] = False
                         self.crossing['boat_type'] = None
                         self.crossing['boat_origin'] = None
                         self.crossing['boat_algorithm'] = None
+                    else:
+                        self.serial_queue.put(("log", f"[SIM DEBUG] Barco #{boat_id} no es el activo (activo={self.crossing['boat_id']})"))
+                else:
+                    self.serial_queue.put(("log", f"[SIM DEBUG] No se encontró 'Barco #' en línea: {line}"))
 
-            if "[EMERGENCY] Barco #" in line and "reencola" in line:
+            if "[EMERGENCY]" in line and "Cola llena" in line:
                 match = re.search(r'Barco #(\d+)', line)
                 if match:
                     boat_id = int(match.group(1))
-                    boat_origin = self.boat_origin_by_id.get(boat_id, 'left')
-                    boat_type = self.boat_type_by_id.get(boat_id)
-                    boat_algorithm = self.state.get('algorithm', 'FCFS')
-                    self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm)
-                    if self.state.get('active_boat') == boat_id:
+                    if self.crossing['boat_id'] == boat_id:
                         self.state['active_boat'] = None
                         self.crossing['active'] = False
                         self.crossing['boat_type'] = None
