@@ -88,6 +88,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
   } 
 
   bool running = false; // Estado de ejecucion. 
+  unsigned long lastTickAt = millis(); // Marca del ultimo descuento real.
   while (b->remainingMillis > 0) { // Mientras quede tiempo. 
     uint32_t cmd = 0; // Comando recibido. 
     if (!running) { // Si no esta corriendo. 
@@ -96,18 +97,27 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
       if (cmd == NOTIF_CMD_RUN) { // Si run, inicia. 
         running = true; // Marca ejecucion activa. 
         b->allowedToMove = true; // Permite avanzar. 
+        lastTickAt = millis(); // Reinicia base temporal al arrancar.
         if (gScheduler) ship_display_render(gScheduler); // Actualiza pantalla al arrancar.
       } 
       continue; // Repite el ciclo. 
     } 
 
-    unsigned long step = 200; // Paso de tiempo en ms. 
-    if (step > b->remainingMillis) step = b->remainingMillis; // Ajusta si queda menos. 
-    unsigned long slept = 0; // Acumulado de tiempo ejecutado. 
     const unsigned long slice = 50; // Subpaso interno. 
     bool interrupted = false; // Indica si se interrumpio el paso por pausa/termino. 
-    while (slept < step) { // Mientras falte ejecutar el paso. 
-      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando. 
+    xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando.
+    unsigned long now = millis(); // Marca temporal actual.
+    unsigned long elapsed = now - lastTickAt; // Tiempo real transcurrido desde el ultimo descuento.
+
+    if (elapsed > 0) { // Solo descuenta si hubo tiempo real.
+      if (elapsed >= b->remainingMillis) { // Si ya se agoto el tiempo.
+        b->remainingMillis = 0; // Fuerza a cero.
+      } else { // Si aun queda tiempo.
+        b->remainingMillis -= elapsed; // Reduce por tiempo real transcurrido.
+      }
+      lastTickAt = now; // Actualiza base temporal.
+    }
+
       if (cmd == NOTIF_CMD_TERMINATE) { // Si terminate. 
         b->remainingMillis = 0; // Fuerza fin. 
         running = false; // Detiene ejecucion. 
@@ -124,19 +134,8 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         break; // Sale del while interno. 
       } 
 
-      unsigned long doSleep = slice; // Tiempo a contar. 
-      if (slept + doSleep > step) doSleep = step - slept; // Ajusta si excede. 
-      slept += doSleep; // Acumula tiempo. 
-    } 
-
     if (interrupted || !running) { // Si se interrumpio o quedo pausado. 
       continue; // No descuenta tiempo restante. 
-    } 
-
-    if (b->remainingMillis > step) { // Si queda tiempo. 
-      b->remainingMillis -= step; // Reduce el tiempo restante. 
-    } else { // Si ya no queda tiempo. 
-      b->remainingMillis = 0; // Fuerza a cero. 
     } 
 
     // Cada paso del barco solicitamos un render (ship_display_render internally rate-limits and is mutex-protected)
