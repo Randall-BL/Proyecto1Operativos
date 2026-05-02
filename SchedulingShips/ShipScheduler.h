@@ -67,6 +67,7 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint8_t gateLeftClosed; // Estado puerta izquierda (0=abierta, 1=cerrando, 2=cerrada).
   uint8_t gateRightClosed; // Estado puerta derecha (0=abierta, 1=cerrando, 2=cerrada).
   uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
+  bool emergencyDispatchBlockedLogged; // Evita logs repetidos de despacho bloqueado.
 } ShipScheduler; // Alias del tipo scheduler. 
 
 void ship_scheduler_begin(ShipScheduler *scheduler); // Inicializa el scheduler. 

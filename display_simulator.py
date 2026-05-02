@@ -29,6 +29,8 @@ class SchedulingShipsDisplay:
         self.running = True
         self.serial_queue = Queue()
         self.last_update_ts = time.time()
+        self.app_start_ts = time.time()
+        self.last_serial_log = None
 
         # Display físico: 128x160 (ancho x alto)
         self.tft_width = 128
@@ -114,6 +116,10 @@ class SchedulingShipsDisplay:
         # Etiqueta de estado
         self.status_label = ttk.Label(display_frame, text="Conectando...", foreground="yellow")
         self.status_label.pack(pady=5)
+
+        # Cronometro de ejecucion (fuente agrandada 4x, texto negro)
+        self.timer_label = ttk.Label(display_frame, text="Tiempo: 00:00:00", foreground="black", font=("Courier", 36, "bold"))
+        self.timer_label.pack(pady=(0, 5))
         
         # ===== COLUMNA DERECHA: SERIAL MONITOR + COMANDOS =====
         serial_frame = ttk.LabelFrame(main_frame, text="Serial Monitor & Comandos")
@@ -163,6 +169,9 @@ class SchedulingShipsDisplay:
     
     def log_serial(self, message):
         """Agrega un mensaje al monitor serial"""
+        if message == self.last_serial_log:
+            return
+        self.last_serial_log = message
         self.serial_output.insert(tk.END, message + '\n')
         self.serial_output.see(tk.END)  # Auto-scroll
     
@@ -569,6 +578,11 @@ class SchedulingShipsDisplay:
     def redraw(self):
         """Redibuja el canvas con escala basada en 128x160"""
         self.process_serial_events()
+        elapsed = int(time.time() - self.app_start_ts)
+        hours = elapsed // 3600
+        minutes = (elapsed % 3600) // 60
+        seconds = elapsed % 60
+        self.timer_label.config(text=f"Tiempo: {hours:02d}:{minutes:02d}:{seconds:02d}")
         self.canvas.delete("all")
 
         s = self.scale

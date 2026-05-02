@@ -165,6 +165,7 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   scheduler->proximityDistanceIsSimulated = false; // Distancia real por defecto.
   scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.
   scheduler->emergencyStartedAt = 0; // Sin timestamp.
+  scheduler->emergencyDispatchBlockedLogged = false; // No hemos registrado mensaje de despacho bloqueado.
   scheduler->gateLeftClosed = 0; // Puerta izquierda abierta.
   scheduler->gateRightClosed = 0; // Puerta derecha abierta.
   scheduler->gateLockDurationMs = 5000; // Cierre de 5 segundos por defecto.
@@ -569,7 +570,10 @@ static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
 
   // Bloquea despacho si hay emergencia (puertas cerradas).
   if (scheduler->emergencyMode != EMERGENCY_NONE) {
-    ship_logln("[EMERGENCY] Despacho bloqueado: puertas cerradas por emergencia");
+    if (!scheduler->emergencyDispatchBlockedLogged) {
+      ship_logln("[EMERGENCY] Despacho bloqueado: puertas cerradas por emergencia");
+      scheduler->emergencyDispatchBlockedLogged = true;
+    }
     return; // No inicia barco mientras hay emergencia.
   }
 
@@ -844,6 +848,7 @@ void ship_scheduler_clear_emergency(ShipScheduler *scheduler) { // Limpia el est
   
   scheduler->emergencyMode = EMERGENCY_NONE; // Sin emergencia.
   scheduler->emergencyStartedAt = 0; // Limpia timestamp.
+  scheduler->emergencyDispatchBlockedLogged = false; // Reinicia bandera para futuros eventos.
   ship_logln("[EMERGENCY] Estado: NORMAL"); // Log retorno a normal.
 } // Fin de ship_scheduler_clear_emergency.
 
