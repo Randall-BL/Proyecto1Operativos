@@ -149,8 +149,8 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
 
   if (gScheduler) { // Si hay scheduler global. 
     ship_scheduler_notify_boat_finished(gScheduler, b); // Notifica finalizacion. 
-    // Una ultima actualizacion de pantalla para reflejar el cambio inmediato
-    ship_display_render(gScheduler);
+    // Una ultima actualizacion de pantalla FORZADA para reflejar el cambio inmediato (ignora rate limit)
+    ship_display_render_forced(gScheduler);
   } 
 
   destroyBoat(b); // Libera el Boat. 
