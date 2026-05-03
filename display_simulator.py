@@ -51,12 +51,8 @@ class SchedulingShipsDisplay:
             'active': False,
         }
 
-        # Tiempos por tipo para la animación visual solamente.
-        self.service_time_by_type_ms = {
-            'normal': 6500,
-            'pesquera': 4500,
-            'patrulla': 3000,
-        }
+        # Tiempos por tipo cargados directamente desde ShipModel.c (sin valores por defecto aquí)
+        self.service_time_by_type_ms = {}
 
         # Intenta cargar los tiempos desde el fichero C para mantener sincronía
         try:
@@ -64,6 +60,8 @@ class SchedulingShipsDisplay:
         except Exception:
             # Si falla, mantenemos los valores por defecto
             pass
+
+        # No cargamos el paso de movimiento; la animación será continua basada en duraciones del .c
         # Cache de tipo por id para enlazar "Start -> barco #N" con el tipo real
         self.boat_type_by_id = {}
 
@@ -350,13 +348,24 @@ class SchedulingShipsDisplay:
         except Exception as e:
             self.serial_queue.put(("log", f"Error leyendo ShipModel.c: {e}. Usando valores por defecto."))
 
+    
+
     def queue_for_origin(self, boat_origin):
         return self.queue_right if boat_origin == 'right' else self.queue_left
 
     def duration_for_boat_type(self, boat_type):
         if not boat_type:
-            return 6.5
-        return self.service_time_by_type_ms.get(boat_type, 6500) / 1000.0
+            boat_type = 'normal'
+
+        duration_ms = self.service_time_by_type_ms.get(boat_type)
+        if duration_ms is None:
+            # No se cargó desde ShipModel.c: informar y usar fallback seguro (1000ms)
+            try:
+                self.serial_queue.put(("log", f"Aviso: tiempo para tipo '{boat_type}' no cargado desde ShipModel.c; usando fallback 1000ms"))
+            except Exception:
+                pass
+            duration_ms = 1000
+        return duration_ms / 1000.0
 
     def origin_to_direction(self, boat_origin):
         if boat_origin == 'right':
@@ -499,30 +508,34 @@ class SchedulingShipsDisplay:
                     self.crossing['paused'] = False
                     self.crossing['start_ts'] = time.time() - (self.crossing['pause_progress'] * self.crossing['duration_s'])
 
-            if "recolocado en cola" in line:
+            if "recolocado en cola" in line or "[EMERGENCY]" in line and "recolocado" in line:
+                self.serial_queue.put(("log", f"[SIM DEBUG] Detectado 'recolocado en cola' en línea: {line}"))
                 match = re.search(r'Barco #(\d+)', line)
                 if match:
                     boat_id = int(match.group(1))
+                    self.serial_queue.put(("log", f"[SIM DEBUG] Recolocando barco #{boat_id} en cola"))
                     boat_origin = self.boat_origin_by_id.get(boat_id, 'left')
                     boat_type = self.boat_type_by_id.get(boat_id)
                     boat_algorithm = self.state.get('algorithm', 'FCFS')
+                    self.serial_queue.put(("log", f"[SIM DEBUG] Origen={boat_origin}, Tipo={boat_type}, Algo={boat_algorithm}"))
                     self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm)
                     if self.crossing['boat_id'] == boat_id:
+                        self.serial_queue.put(("log", f"[SIM DEBUG] Limpiando estado activo para barco #{boat_id}"))
                         self.state['active_boat'] = None
                         self.crossing['active'] = False
                         self.crossing['boat_type'] = None
                         self.crossing['boat_origin'] = None
                         self.crossing['boat_algorithm'] = None
+                    else:
+                        self.serial_queue.put(("log", f"[SIM DEBUG] Barco #{boat_id} no es el activo (activo={self.crossing['boat_id']})"))
+                else:
+                    self.serial_queue.put(("log", f"[SIM DEBUG] No se encontró 'Barco #' en línea: {line}"))
 
-            if "[EMERGENCY] Barco #" in line and "reencola" in line:
+            if "[EMERGENCY]" in line and "Cola llena" in line:
                 match = re.search(r'Barco #(\d+)', line)
                 if match:
                     boat_id = int(match.group(1))
-                    boat_origin = self.boat_origin_by_id.get(boat_id, 'left')
-                    boat_type = self.boat_type_by_id.get(boat_id)
-                    boat_algorithm = self.state.get('algorithm', 'FCFS')
-                    self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm)
-                    if self.state.get('active_boat') == boat_id:
+                    if self.crossing['boat_id'] == boat_id:
                         self.state['active_boat'] = None
                         self.crossing['active'] = False
                         self.crossing['boat_type'] = None
@@ -627,8 +640,12 @@ class SchedulingShipsDisplay:
         # Animación de barco activo
         if self.crossing['active'] and self.crossing['boat_id'] is not None:
             now = time.time()
-            elapsed = self.crossing['pause_progress'] * self.crossing['duration_s'] if self.crossing['paused'] else (now - self.crossing['start_ts'])
-            progress = max(0.0, min(1.0, elapsed / self.crossing['duration_s']))
+            if self.crossing['paused']:
+                elapsed = self.crossing['pause_progress'] * self.crossing['duration_s']
+            else:
+                elapsed = now - self.crossing['start_ts']
+
+            progress = max(0.0, min(1.0, elapsed / max(1e-6, self.crossing['duration_s'])))
 
             x_left = side_w + 4
             x_right = w - side_w - 4
@@ -649,14 +666,8 @@ class SchedulingShipsDisplay:
                 self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(self.crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
 
             if progress >= 1.0:
-                # Solo evita que quede congelado si falta el log de finalizado.
-                self.crossing['active'] = False
-                self.crossing['boat_type'] = None
-                self.crossing['boat_origin'] = None
-                self.crossing['boat_algorithm'] = None
-                self.crossing['paused'] = False
-                self.crossing['pause_progress'] = 0.0
-                self.state['active_boat'] = None
+                # Mantiene el barco visible en el extremo hasta recibir el log real de finalización.
+                progress = 1.0
 
         # Información de cola visible
         # Pie con estadísticas

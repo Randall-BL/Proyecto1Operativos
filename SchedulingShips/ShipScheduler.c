@@ -87,56 +87,60 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     return; // Termina. 
   } 
 
-  bool running = false; // Estado de ejecucion. 
-  while (b->remainingMillis > 0) { // Mientras quede tiempo. 
-    uint32_t cmd = 0; // Comando recibido. 
-    if (!running) { // Si no esta corriendo. 
-      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, portMAX_DELAY); // Espera notificacion. 
-      if (cmd == NOTIF_CMD_TERMINATE) break; // Si terminate, sale. 
-      if (cmd == NOTIF_CMD_RUN) { // Si run, inicia. 
-        running = true; // Marca ejecucion activa. 
-        b->allowedToMove = true; // Permite avanzar. 
+  bool running = false; // Estado de ejecucion.
+  unsigned long lastTickAt = millis(); // Marca del ultimo descuento real.
+  ship_logf("[BOAT TASK] Barco #%u iniciada. serviceMillis=%lu\n", b->id, b->serviceMillis); // Debug: inicio de tarea.
+  while (b->remainingMillis > 0) { // Mientras quede tiempo.
+    uint32_t cmd = 0; // Comando recibido.
+    if (!running) { // Si no esta corriendo.
+      ship_logf("[BOAT TASK #%u] Esperando NOTIF_CMD_RUN (remainingMillis=%lu)...\n", b->id, b->remainingMillis); // Debug: esperando comando.
+      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, portMAX_DELAY); // Espera notificacion.
+      ship_logf("[BOAT TASK #%u] Recibido comando: %u\n", b->id, cmd); // Debug: comando recibido.
+      if (cmd == NOTIF_CMD_TERMINATE) break; // Si terminate, sale.
+      if (cmd == NOTIF_CMD_RUN) { // Si run, inicia.
+        running = true; // Marca ejecucion activa.
+        b->allowedToMove = true; // Permite avanzar.
+        lastTickAt = millis(); // Reinicia base temporal al arrancar.
+        ship_logf("[BOAT TASK #%u] RUN recibido. running=true, lastTickAt=%lu, remainingMillis=%lu\n", b->id, lastTickAt, b->remainingMillis); // Debug: iniciando ejecucion.
         if (gScheduler) ship_display_render(gScheduler); // Actualiza pantalla al arrancar.
-      } 
-      continue; // Repite el ciclo. 
+      }
+      continue; // Repite el ciclo.
     } 
 
-    unsigned long step = 200; // Paso de tiempo en ms. 
-    if (step > b->remainingMillis) step = b->remainingMillis; // Ajusta si queda menos. 
-    unsigned long slept = 0; // Acumulado de tiempo ejecutado. 
     const unsigned long slice = 50; // Subpaso interno. 
     bool interrupted = false; // Indica si se interrumpio el paso por pausa/termino. 
-    while (slept < step) { // Mientras falte ejecutar el paso. 
-      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando. 
+    xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando.
+    unsigned long now = millis(); // Marca temporal actual.
+    unsigned long elapsed = now - lastTickAt; // Tiempo real transcurrido desde el ultimo descuento.
+
+    if (elapsed > 0) { // Solo descuenta si hubo tiempo real.
+      if (elapsed >= b->remainingMillis) { // Si ya se agoto el tiempo.
+        b->remainingMillis = 0; // Fuerza a cero.
+      } else { // Si aun queda tiempo.
+        b->remainingMillis -= elapsed; // Reduce por tiempo real transcurrido.
+      }
+      lastTickAt = now; // Actualiza base temporal.
+    }
+
       if (cmd == NOTIF_CMD_TERMINATE) { // Si terminate. 
         b->remainingMillis = 0; // Fuerza fin. 
         running = false; // Detiene ejecucion. 
         b->allowedToMove = false; // Bloquea movimiento. 
         interrupted = true; // Marca interrupcion. 
         if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar estado terminado.
-        break; // Sale del while interno. 
+        break; // Sale del while principal para terminar la tarea. 
       } 
-      if (cmd == NOTIF_CMD_PAUSE) { // Si pause. 
-        running = false; // Detiene ejecucion. 
-        b->allowedToMove = false; // Bloquea movimiento. 
-        interrupted = true; // Marca interrupcion. 
+      if (cmd == NOTIF_CMD_PAUSE) { // Si pause.
+        ship_logf("[BOAT TASK #%u] PAUSE recibido. running=false, remainingMillis=%lu\n", b->id, b->remainingMillis); // Debug: pausa.
+        running = false; // Detiene ejecucion.
+        b->allowedToMove = false; // Bloquea movimiento.
+        interrupted = true; // Marca interrupcion.
         if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar pausa.
-        break; // Sale del while interno. 
+        continue; // Vuelve al inicio del bucle para esperar NOTIF_CMD_RUN nuevamente.
       } 
-
-      unsigned long doSleep = slice; // Tiempo a contar. 
-      if (slept + doSleep > step) doSleep = step - slept; // Ajusta si excede. 
-      slept += doSleep; // Acumula tiempo. 
-    } 
 
     if (interrupted || !running) { // Si se interrumpio o quedo pausado. 
       continue; // No descuenta tiempo restante. 
-    } 
-
-    if (b->remainingMillis > step) { // Si queda tiempo. 
-      b->remainingMillis -= step; // Reduce el tiempo restante. 
-    } else { // Si ya no queda tiempo. 
-      b->remainingMillis = 0; // Fuerza a cero. 
     } 
 
     // Cada paso del barco solicitamos un render (ship_display_render internally rate-limits and is mutex-protected)
@@ -145,8 +149,8 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
 
   if (gScheduler) { // Si hay scheduler global. 
     ship_scheduler_notify_boat_finished(gScheduler, b); // Notifica finalizacion. 
-    // Una ultima actualizacion de pantalla para reflejar el cambio inmediato
-    ship_display_render(gScheduler);
+    // Una ultima actualizacion de pantalla FORZADA para reflejar el cambio inmediato (ignora rate limit)
+    ship_display_render_forced(gScheduler);
   } 
 
   destroyBoat(b); // Libera el Boat. 
@@ -613,7 +617,12 @@ static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   scheduler->hasActiveBoat = true; // Marca flag. 
   b->allowedToMove = true; // Permite avance al despachar.
   ship_logf("Dispatching -> barco #%u (rem=%lu svc=%lu)\n", b->id, b->remainingMillis, b->serviceMillis);
-  if (b->taskHandle) xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea. 
+  if (b->taskHandle) {
+    ship_logf("[DISPATCH DEBUG] Enviando NOTIF_CMD_RUN a barco #%u (taskHandle=%p)\n", b->id, (void*)b->taskHandle); // Debug: enviando notificacion.
+    xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea.
+  } else {
+    ship_logf("[DISPATCH DEBUG] ERROR: barco #%u NO TIENE taskHandle!\n", b->id); // Debug: error crítico.
+  } 
 
   ship_logf("Start -> barco #%u\n", b->id); // Log del inicio. 
 } // Fin de ship_scheduler_start_next_boat. 
@@ -820,6 +829,7 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
     scheduler->activeBoat = NULL; // Limpia puntero activo.
     scheduler->crossingStartedAt = 0; // Reinicia timestamp de cruce.
 
+    ship_logf("[EMERGENCY] Intentando recolocar barco #%u en cola (readyCount=%u, maxConfigured=%u)\n", activeBoat->id, scheduler->readyCount, scheduler->maxReadyQueueConfigured); // Debug log.
     if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
       activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia el cruce.
       activeBoat->state = STATE_WAITING; // Lo devuelve a cola.
@@ -834,6 +844,9 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
       destroyBoat(activeBoat); // Destruye si no cabe.
     }
   }
+
+  // Fuerza actualización inmediata de pantalla sin respetar rate limit durante emergencia
+  if (scheduler) ship_display_render_forced(scheduler);
 
   scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
   ship_logln("[EMERGENCY] Modo: RECOVERY (esperando apertura de compuertas)"); // Log estado.

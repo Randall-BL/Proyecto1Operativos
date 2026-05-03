@@ -46,21 +46,13 @@ static int16_t gPrevBoatX = -1;
 static int16_t gPrevBoatY = -1;
 static int16_t gPrevBoatW = 0;
 static int16_t gPrevBoatH = 0;
-static uint8_t gPrevBoatId = 0;
-
-// Mapea el progreso temporal a una posicion en pixeles. 
-static int16_t mapProgress(unsigned long elapsed, unsigned long total, int16_t from, int16_t to) { // Funcion de mapeo lineal. 
-  if (total == 0) { // Evita division por cero. 
-    return to; // Devuelve el extremo final si no hay total. 
-  } 
-
-  long delta = (long)to - (long)from; // Distancia total en pixeles. 
-  return from + (int16_t)((delta * (long)elapsed) / (long)total); // Mapea proporcionalmente. 
-} 
 
 // Dibuja el fondo estatico de la interfaz. 
 static void drawStaticLayout(const char *algoLabel) { // Renderiza el layout base. 
   gTft.fillScreen(ST77XX_BLACK); // Limpia toda la pantalla. 
+  
+  // Invalida el cache de barco cuando se redibuja el layout completo
+  ship_display_invalidate_boat_cache();
 
   gTft.fillRect(0, 0, SCREEN_W, HEADER_H, SHIP_NAVY); // Encabezado. 
   gTft.setTextWrap(true); // Activa el ajuste de texto. 
@@ -106,7 +98,7 @@ static void drawWaitingSide(const ShipScheduler *scheduler, BoatSide side) { // 
   gTft.fillRect(panelX - 1, WAIT_AREA_Y - 2, BOAT_SIZE + 4, CANAL_H - 18, ST77XX_BLACK); // Limpia area. 
 
   uint8_t waitingCount = ship_scheduler_get_waiting_count(scheduler, side); // Total en cola. 
-  uint8_t visibleCount = waitingCount > 3 ? 3 : waitingCount; // Maximo visible. 
+  uint8_t visibleCount = ship_display_get_visible_waiting_count(waitingCount); // Usa funcion de logica.
 
   for (uint8_t i = 0; i < visibleCount; i++) { // Itera los visibles. 
     const Boat *boat = ship_scheduler_get_waiting_boat(scheduler, side, i); // Barco en posicion i. 
@@ -138,21 +130,16 @@ static void drawActiveBoat(const ShipScheduler *scheduler) { // Render del activ
   gTft.print("Canal"); // Titulo del canal. 
 
   const Boat *activeBoat = ship_scheduler_get_active_boat(scheduler); // Obtiene el barco activo. 
+  
+  // Usa la funcion de logica para calcular posicion
+  unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler);
+  BoatRenderData boatData = ship_display_calculate_active_boat_position(activeBoat, elapsed, CANAL_X, CANAL_W, CANAL_Y, CANAL_H, BOAT_SIZE);
+  
   if (activeBoat != NULL) { // Si hay barco activo. 
-    unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler); // Progreso real del barco ya resuelto por el scheduler.
     unsigned long remaining = activeBoat->remainingMillis; // Tiempo restante mostrado en la banda de info. 
 
-    int16_t travelStart = activeBoat->origin == SIDE_RIGHT ? CANAL_X + CANAL_W - BOAT_SIZE - 2 : CANAL_X + 2; // X inicial. 
-    int16_t travelEnd = activeBoat->origin == SIDE_RIGHT ? CANAL_X + 2 : CANAL_X + CANAL_W - BOAT_SIZE - 2; // X final. 
-    int16_t boatX = mapProgress(elapsed, activeBoat->serviceMillis, travelStart, travelEnd); // Mapea X. 
-    int16_t minX = CANAL_X + 2; // Limite minimo. 
-    int16_t maxX = CANAL_X + CANAL_W - BOAT_SIZE - 2; // Limite maximo. 
-    if (boatX < minX) boatX = minX; // Corrige si es menor. 
-    if (boatX > maxX) boatX = maxX; // Corrige si es mayor. 
-    int16_t boatY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2); // Y centrado. 
-
     // Si es un barco distinto al anterior, borra la region completa del canal una vez
-    if (gPrevBoatId != activeBoat->id) {
+    if (boatData.isNewBoat) {
       gTft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, 0x18E3); // Limpia canal completo al cambiar de barco.
     } else {
       // Borra solo la posicion anterior del barco para evitar redibujado completo
@@ -161,14 +148,13 @@ static void drawActiveBoat(const ShipScheduler *scheduler) { // Render del activ
       }
     }
 
-    drawBoatSquare(boatX, boatY, activeBoat, true); // Dibuja el barco activo. 
+    drawBoatSquare(boatData.boatX, boatData.boatY, activeBoat, true); // Dibuja el barco activo. 
 
     // Actualiza estado previo
-    gPrevBoatId = activeBoat->id;
-    gPrevBoatX = boatX;
-    gPrevBoatY = boatY;
-    gPrevBoatW = BOAT_SIZE;
-    gPrevBoatH = BOAT_SIZE;
+    gPrevBoatX = boatData.boatX;
+    gPrevBoatY = boatData.boatY;
+    gPrevBoatW = boatData.boatWidth;
+    gPrevBoatH = boatData.boatHeight;
 
     gTft.fillRect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, 0x18E3); // Limpia banda de info. 
     gTft.setTextColor(ST77XX_WHITE, ST77XX_BLACK); // Color de info. 
@@ -184,6 +170,12 @@ static void drawActiveBoat(const ShipScheduler *scheduler) { // Render del activ
     gTft.print('s'); // Sufijo segundos. 
     gTft.setTextWrap(true); // Restaura ajuste de texto. 
   } else { // Si no hay barco activo. 
+    // Limpia completamente el canal y el estado anterior para que el barco desaparezca
+    if (boatData.isNewBoat) {
+      gTft.fillRect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, 0x18E3); // Limpia todo el canal.
+      gPrevBoatX = -1; // Invalida posicion anterior.
+      gPrevBoatY = -1;
+    }
     gTft.fillRect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, 0x18E3); // Limpia info. 
   } 
 } 
@@ -271,4 +263,13 @@ void ship_display_render(const ShipScheduler *scheduler) { // Entrada publica de
 // API C: alias mantenido por compatibilidad; ahora delega a ship_display_render
 void ship_display_render_if_needed(const ShipScheduler *scheduler) { // Entrada publica con limitador. 
   ship_display_render(scheduler);
-} 
+}
+
+// API C: renderiza forzadamente sin respetar el rate limit (para eventos críticos).
+void ship_display_render_forced(const ShipScheduler *scheduler) { // Fuerza render sin rate limit.
+  // Resetea el rate limit para forzar render inmediato
+  gLastUiRefresh = 0;
+  // Ahora llama al render normal que revisará el rate limit y verá que es hora de renderizar
+  ship_display_render(scheduler);
+}
+
