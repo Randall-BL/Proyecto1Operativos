@@ -62,7 +62,7 @@ static bool candidate_is_better(ShipAlgo algo, const Boat *candidate, const Boat
     return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
   }
 
-  return candidate->arrivalOrder < best->arrivalOrder; // Fallback por llegada.
+  return candidate->arrivalOrder < best->arrivalOrder; // Alternativa por llegada.
 } // Fin de candidate_is_better.
 
 static int findIndexForAlgoAndSide(ShipAlgo algo, Boat *readyQueue[], uint8_t readyCount, bool useSide, BoatSide side) { // Busca el mejor indice filtrando por lado opcional.
@@ -87,66 +87,70 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     return; // Termina. 
   } 
 
-  bool running = false; // Estado de ejecucion. 
-  while (b->remainingMillis > 0) { // Mientras quede tiempo. 
-    uint32_t cmd = 0; // Comando recibido. 
-    if (!running) { // Si no esta corriendo. 
-      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, portMAX_DELAY); // Espera notificacion. 
-      if (cmd == NOTIF_CMD_TERMINATE) break; // Si terminate, sale. 
-      if (cmd == NOTIF_CMD_RUN) { // Si run, inicia. 
-        running = true; // Marca ejecucion activa. 
-        b->allowedToMove = true; // Permite avanzar. 
+  bool running = false; // Estado de ejecucion.
+  unsigned long lastTickAt = millis(); // Marca del ultimo descuento real.
+  ship_logf("[BOAT TASK] Barco #%u iniciada. serviceMillis=%lu\n", b->id, b->serviceMillis); // Depuracion: inicio de tarea.
+  while (b->remainingMillis > 0) { // Mientras quede tiempo.
+    uint32_t cmd = 0; // Comando recibido.
+    if (!running) { // Si no esta corriendo.
+      ship_logf("[BOAT TASK #%u] Esperando NOTIF_CMD_RUN (remainingMillis=%lu)...\n", b->id, b->remainingMillis); // Depuracion: esperando comando.
+      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, portMAX_DELAY); // Espera notificacion.
+      ship_logf("[BOAT TASK #%u] Recibido comando: %u\n", b->id, cmd); // Depuracion: comando recibido.
+      if (cmd == NOTIF_CMD_TERMINATE) break; // Si terminate, sale.
+      if (cmd == NOTIF_CMD_RUN) { // Si run, inicia.
+        running = true; // Marca ejecucion activa.
+        b->allowedToMove = true; // Permite avanzar.
+        lastTickAt = millis(); // Reinicia base temporal al arrancar.
+        ship_logf("[BOAT TASK #%u] RUN recibido. running=true, lastTickAt=%lu, remainingMillis=%lu\n", b->id, lastTickAt, b->remainingMillis); // Depuracion: iniciando ejecucion.
         if (gScheduler) ship_display_render(gScheduler); // Actualiza pantalla al arrancar.
-      } 
-      continue; // Repite el ciclo. 
+      }
+      continue; // Repite el ciclo.
     } 
 
-    unsigned long step = 200; // Paso de tiempo en ms. 
-    if (step > b->remainingMillis) step = b->remainingMillis; // Ajusta si queda menos. 
-    unsigned long slept = 0; // Acumulado de tiempo ejecutado. 
     const unsigned long slice = 50; // Subpaso interno. 
     bool interrupted = false; // Indica si se interrumpio el paso por pausa/termino. 
-    while (slept < step) { // Mientras falte ejecutar el paso. 
-      xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando. 
+    xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando.
+    unsigned long now = millis(); // Marca temporal actual.
+    unsigned long elapsed = now - lastTickAt; // Tiempo real transcurrido desde el ultimo descuento.
+
+    if (elapsed > 0) { // Solo descuenta si hubo tiempo real.
+      if (elapsed >= b->remainingMillis) { // Si ya se agoto el tiempo.
+        b->remainingMillis = 0; // Fuerza a cero.
+      } else { // Si aun queda tiempo.
+        b->remainingMillis -= elapsed; // Reduce por tiempo real transcurrido.
+      }
+      lastTickAt = now; // Actualiza base temporal.
+    }
+
       if (cmd == NOTIF_CMD_TERMINATE) { // Si terminate. 
         b->remainingMillis = 0; // Fuerza fin. 
         running = false; // Detiene ejecucion. 
         b->allowedToMove = false; // Bloquea movimiento. 
         interrupted = true; // Marca interrupcion. 
         if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar estado terminado.
-        break; // Sale del while interno. 
+        break; // Sale del while principal para terminar la tarea. 
       } 
-      if (cmd == NOTIF_CMD_PAUSE) { // Si pause. 
-        running = false; // Detiene ejecucion. 
-        b->allowedToMove = false; // Bloquea movimiento. 
-        interrupted = true; // Marca interrupcion. 
+      if (cmd == NOTIF_CMD_PAUSE) { // Si pause.
+        ship_logf("[BOAT TASK #%u] PAUSE recibido. running=false, remainingMillis=%lu\n", b->id, b->remainingMillis); // Depuracion: pausa.
+        running = false; // Detiene ejecucion.
+        b->allowedToMove = false; // Bloquea movimiento.
+        interrupted = true; // Marca interrupcion.
         if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar pausa.
-        break; // Sale del while interno. 
+        continue; // Vuelve al inicio del bucle para esperar NOTIF_CMD_RUN nuevamente.
       } 
-
-      unsigned long doSleep = slice; // Tiempo a contar. 
-      if (slept + doSleep > step) doSleep = step - slept; // Ajusta si excede. 
-      slept += doSleep; // Acumula tiempo. 
-    } 
 
     if (interrupted || !running) { // Si se interrumpio o quedo pausado. 
       continue; // No descuenta tiempo restante. 
     } 
 
-    if (b->remainingMillis > step) { // Si queda tiempo. 
-      b->remainingMillis -= step; // Reduce el tiempo restante. 
-    } else { // Si ya no queda tiempo. 
-      b->remainingMillis = 0; // Fuerza a cero. 
-    } 
-
-    // Cada paso del barco solicitamos un render (ship_display_render internally rate-limits and is mutex-protected)
+    // Cada paso del barco solicitamos un dibujo (ship_display_render limita la tasa internamente y usa mutex)
     if (gScheduler) ship_display_render(gScheduler);
   } 
 
   if (gScheduler) { // Si hay scheduler global. 
     ship_scheduler_notify_boat_finished(gScheduler, b); // Notifica finalizacion. 
-    // Una ultima actualizacion de pantalla para reflejar el cambio inmediato
-    ship_display_render(gScheduler);
+    // Una ultima actualizacion de pantalla FORZADA para reflejar el cambio inmediato (ignora limite de refresco)
+    ship_display_render_forced(gScheduler);
   } 
 
   destroyBoat(b); // Libera el Boat. 
@@ -155,14 +159,14 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
 
 void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler. 
   if (!scheduler) return; // Valida puntero. 
-  if (scheduler->rrQuantumMillis < 100) scheduler->rrQuantumMillis = 1200; // Default RR.
-  if (scheduler->fairnessWindowW == 0) scheduler->fairnessWindowW = 2; // Default W.
-  if (scheduler->signIntervalMillis < 1000) scheduler->signIntervalMillis = 8000; // Default de letrero.
+  if (scheduler->rrQuantumMillis < 100) scheduler->rrQuantumMillis = 1200; // RR por defecto.
+  if (scheduler->fairnessWindowW == 0) scheduler->fairnessWindowW = 2; // W por defecto.
+  if (scheduler->signIntervalMillis < 1000) scheduler->signIntervalMillis = 8000; // Letrero por defecto.
   if (scheduler->maxReadyQueueConfigured == 0 || scheduler->maxReadyQueueConfigured > MAX_BOATS) scheduler->maxReadyQueueConfigured = MAX_BOATS; // Limite de cola por defecto.
-  if (scheduler->channelLengthMeters == 0) scheduler->channelLengthMeters = 120; // Largo default del canal.
-  if (scheduler->boatSpeedMetersPerSec == 0) scheduler->boatSpeedMetersPerSec = 18; // Velocidad default.
-  scheduler->flowMode = FLOW_TICO; // Default de flujo (sin control).
-  scheduler->signDirection = SIDE_LEFT; // Default letrero izquierda.
+  if (scheduler->channelLengthMeters == 0) scheduler->channelLengthMeters = 120; // Largo por defecto del canal.
+  if (scheduler->boatSpeedMetersPerSec == 0) scheduler->boatSpeedMetersPerSec = 18; // Velocidad por defecto.
+  scheduler->flowMode = FLOW_TICO; // Flujo por defecto (sin control).
+  scheduler->signDirection = SIDE_LEFT; // Letrero por defecto a la izquierda.
   scheduler->signLastSwitchAt = millis(); // Marca inicial de letrero.
   scheduler->fairnessCurrentSide = SIDE_LEFT; // Lado inicial de equidad.
   scheduler->fairnessPassedInWindow = 0; // Reinicia ventana de equidad.
@@ -228,7 +232,7 @@ void ship_scheduler_set_algorithm(ShipScheduler *scheduler, ShipAlgo algo) { // 
 } // Fin de ship_scheduler_set_algorithm. 
 
 ShipAlgo ship_scheduler_get_algorithm(const ShipScheduler *scheduler) { // Lee algoritmo. 
-  if (!scheduler) return ALG_FCFS; // Retorna default si es nulo. 
+  if (!scheduler) return ALG_FCFS; // Retorna por defecto si es nulo. 
   return scheduler->algorithm; // Retorna algoritmo actual. 
 } // Fin de ship_scheduler_get_algorithm. 
 
@@ -242,7 +246,7 @@ const char *ship_scheduler_get_algorithm_label(const ShipScheduler *scheduler) {
     case ALG_RR: return "RR"; // Etiqueta RR. 
     case ALG_PRIORITY: return "PRIO"; // Etiqueta prioridad. 
   } // Fin del switch. 
-  return "?"; // Fallback. 
+  return "?"; // Alternativa. 
 } // Fin de ship_scheduler_get_algorithm_label. 
 
 void ship_scheduler_set_round_robin_quantum(ShipScheduler *scheduler, unsigned long quantumMillis) { // Configura quantum. 
@@ -264,7 +268,7 @@ void ship_scheduler_set_flow_mode(ShipScheduler *scheduler, ShipFlowMode mode) {
 } // Fin de ship_scheduler_set_flow_mode.
 
 ShipFlowMode ship_scheduler_get_flow_mode(const ShipScheduler *scheduler) { // Lee metodo de flujo.
-  if (!scheduler) return FLOW_TICO; // Retorna default si es nulo.
+  if (!scheduler) return FLOW_TICO; // Retorna por defecto si es nulo.
   return scheduler->flowMode; // Retorna modo configurado.
 } // Fin de ship_scheduler_get_flow_mode.
 
@@ -275,7 +279,7 @@ const char *ship_scheduler_get_flow_mode_label(const ShipScheduler *scheduler) {
     case FLOW_FAIRNESS: return "EQUIDAD"; // Ventana W.
     case FLOW_SIGN: return "LETRERO"; // Cambio por tiempo.
   }
-  return "?"; // Fallback.
+  return "?"; // Alternativa.
 } // Fin de ship_scheduler_get_flow_mode_label.
 
 void ship_scheduler_set_fairness_window(ShipScheduler *scheduler, uint8_t windowW) { // Ajusta W.
@@ -286,7 +290,7 @@ void ship_scheduler_set_fairness_window(ShipScheduler *scheduler, uint8_t window
 } // Fin de ship_scheduler_set_fairness_window.
 
 uint8_t ship_scheduler_get_fairness_window(const ShipScheduler *scheduler) { // Lee W.
-  if (!scheduler) return 1; // Retorna default.
+  if (!scheduler) return 1; // Retorna por defecto.
   return scheduler->fairnessWindowW == 0 ? 1 : scheduler->fairnessWindowW; // Retorna W normalizado.
 } // Fin de ship_scheduler_get_fairness_window.
 
@@ -297,7 +301,7 @@ void ship_scheduler_set_sign_direction(ShipScheduler *scheduler, BoatSide side) 
 } // Fin de ship_scheduler_set_sign_direction.
 
 BoatSide ship_scheduler_get_sign_direction(const ShipScheduler *scheduler) { // Lee direccion del letrero.
-  if (!scheduler) return SIDE_LEFT; // Retorna default.
+  if (!scheduler) return SIDE_LEFT; // Retorna por defecto.
   return scheduler->signDirection; // Retorna lado.
 } // Fin de ship_scheduler_get_sign_direction.
 
@@ -321,7 +325,7 @@ void ship_scheduler_set_max_ready_queue(ShipScheduler *scheduler, uint8_t limit)
 } // Fin de ship_scheduler_set_max_ready_queue.
 
 uint8_t ship_scheduler_get_max_ready_queue(const ShipScheduler *scheduler) { // Lee cola maxima.
-  if (!scheduler) return MAX_BOATS; // Retorna default.
+  if (!scheduler) return MAX_BOATS; // Retorna por defecto.
   if (scheduler->maxReadyQueueConfigured == 0 || scheduler->maxReadyQueueConfigured > MAX_BOATS) return MAX_BOATS; // Normaliza.
   return scheduler->maxReadyQueueConfigured; // Retorna limite.
 } // Fin de ship_scheduler_get_max_ready_queue.
@@ -354,7 +358,7 @@ void ship_scheduler_set_flow_logging(ShipScheduler *scheduler, bool enabled) { /
 } // Fin de ship_scheduler_set_flow_logging.
 
 bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler) { // Lee trazas de flujo.
-  if (!scheduler) return false; // Retorna default.
+  if (!scheduler) return false; // Retorna por defecto.
   return scheduler->flowLoggingEnabled; // Retorna estado.
 } // Fin de ship_scheduler_get_flow_logging.
 
@@ -369,7 +373,7 @@ void ship_scheduler_set_sensor_enabled(ShipScheduler *scheduler, bool enabled) {
 } // Fin de ship_scheduler_set_sensor_enabled.
 
 bool ship_scheduler_get_sensor_enabled(const ShipScheduler *scheduler) { // Lee estado del sensor.
-  if (!scheduler) return false; // Retorna default.
+  if (!scheduler) return false; // Retorna por defecto.
   return scheduler->sensorActive; // Retorna estado.
 } // Fin de ship_scheduler_get_sensor_enabled.
 
@@ -382,7 +386,7 @@ void ship_scheduler_set_proximity_threshold(ShipScheduler *scheduler, uint16_t c
 } // Fin de ship_scheduler_set_proximity_threshold.
 
 uint16_t ship_scheduler_get_proximity_threshold(const ShipScheduler *scheduler) { // Lee umbral en cm.
-  if (!scheduler) return 150; // Retorna default.
+  if (!scheduler) return 150; // Retorna por defecto.
   return scheduler->proximityThresholdCm; // Retorna umbral.
 } // Fin de ship_scheduler_get_proximity_threshold.
 
@@ -409,12 +413,12 @@ void ship_scheduler_set_proximity_distance_simulated(ShipScheduler *scheduler, u
 } // Fin de ship_scheduler_set_proximity_distance_simulated.
 
 uint16_t ship_scheduler_get_proximity_distance(const ShipScheduler *scheduler) { // Lee distancia actual.
-  if (!scheduler) return 999; // Retorna default "lejano".
+  if (!scheduler) return 999; // Retorna por defecto "lejano".
   return scheduler->proximityCurrentDistanceCm; // Retorna distancia.
 } // Fin de ship_scheduler_get_proximity_distance.
 
 ShipEmergencyMode ship_scheduler_get_emergency_mode(const ShipScheduler *scheduler) { // Lee modo de emergencia.
-  if (!scheduler) return EMERGENCY_NONE; // Retorna default.
+  if (!scheduler) return EMERGENCY_NONE; // Retorna por defecto.
   return scheduler->emergencyMode; // Retorna modo actual.
 } // Fin de ship_scheduler_get_emergency_mode.
 
@@ -449,7 +453,7 @@ static int ship_scheduler_select_next_index(ShipScheduler *scheduler) { // Selec
       FLOW_LOG(scheduler, "[FLOW][SIGN] Letrero=%s, seleccionando ese lado\n", boatSideName(allowed)); // Traza lado permitido.
       return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, allowed); // Elige permitido.
     }
-    FLOW_LOG(scheduler, "[FLOW][SIGN] Letrero=%s sin barcos; fallback a %s\n", boatSideName(allowed), boatSideName(fallback)); // Traza fallback.
+    FLOW_LOG(scheduler, "[FLOW][SIGN] Letrero=%s sin barcos; fallback a %s\n", boatSideName(allowed), boatSideName(fallback)); // Traza alternativa.
     return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, fallback); // Garantiza flujo.
   }
 
@@ -484,7 +488,7 @@ static int ship_scheduler_select_next_index(ShipScheduler *scheduler) { // Selec
     return findIndexForAlgoAndSide(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount, true, scheduler->fairnessCurrentSide); // Atiende lado de ventana.
   }
 
-  return findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Fallback.
+  return findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Alternativa.
 } // Fin de ship_scheduler_select_next_index.
 
 void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un barco nuevo. 
@@ -613,7 +617,12 @@ static void ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   scheduler->hasActiveBoat = true; // Marca flag. 
   b->allowedToMove = true; // Permite avance al despachar.
   ship_logf("Dispatching -> barco #%u (rem=%lu svc=%lu)\n", b->id, b->remainingMillis, b->serviceMillis);
-  if (b->taskHandle) xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea. 
+  if (b->taskHandle) {
+    ship_logf("[DISPATCH DEBUG] Enviando NOTIF_CMD_RUN a barco #%u (taskHandle=%p)\n", b->id, (void*)b->taskHandle); // Depuracion: enviando notificacion.
+    xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea.
+  } else {
+    ship_logf("[DISPATCH DEBUG] ERROR: barco #%u NO TIENE taskHandle!\n", b->id); // Depuracion: error critico.
+  } 
 
   ship_logf("Start -> barco #%u\n", b->id); // Log del inicio. 
 } // Fin de ship_scheduler_start_next_boat. 
@@ -820,6 +829,7 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
     scheduler->activeBoat = NULL; // Limpia puntero activo.
     scheduler->crossingStartedAt = 0; // Reinicia timestamp de cruce.
 
+    ship_logf("[EMERGENCY] Intentando recolocar barco #%u en cola (readyCount=%u, maxConfigured=%u)\n", activeBoat->id, scheduler->readyCount, scheduler->maxReadyQueueConfigured); // Log de depuracion.
     if (scheduler->readyCount < scheduler->maxReadyQueueConfigured) {
       activeBoat->remainingMillis = activeBoat->serviceMillis; // Reinicia el cruce.
       activeBoat->state = STATE_WAITING; // Lo devuelve a cola.
@@ -834,6 +844,9 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
       destroyBoat(activeBoat); // Destruye si no cabe.
     }
   }
+
+  // Fuerza actualizacion inmediata de pantalla sin respetar limite de refresco durante emergencia
+  if (scheduler) ship_display_render_forced(scheduler);
 
   scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
   ship_logln("[EMERGENCY] Modo: RECOVERY (esperando apertura de compuertas)"); // Log estado.
@@ -851,7 +864,7 @@ void ship_scheduler_clear_emergency(ShipScheduler *scheduler) { // Limpia el est
     if (scheduler->proximityDistanceIsSimulated) { // Si la distancia venia de simulate.
       scheduler->proximityCurrentDistanceCm = 120; // Resetea a distancia segura.
       scheduler->proximityDistanceIsSimulated = false; // Limpia bandera de simulacion.
-      ship_logln("[SENSOR] distancia: 120 cm"); // Confirma reseteo para el display.
+      ship_logln("[SENSOR] distancia: 120 cm"); // Confirma reseteo para la pantalla.
     }
   }
   
@@ -875,19 +888,19 @@ void ship_scheduler_update_emergency(ShipScheduler *scheduler) { // Actualiza es
   if (scheduler->emergencyMode == EMERGENCY_RECOVERY) {
     unsigned long elapsedMs = millis() - scheduler->emergencyStartedAt;
     if (elapsedMs >= scheduler->gateLockDurationMs) {
-      ship_scheduler_clear_emergency(scheduler); // Limpia emergencia tras timeout.
+      ship_scheduler_clear_emergency(scheduler); // Limpia emergencia tras tiempo de espera.
     }
   }
 } // Fin de ship_scheduler_update_emergency.
 
 uint8_t ship_scheduler_get_gate_left_state(const ShipScheduler *scheduler) { // Obtiene estado puerta izquierda.
-  if (!scheduler) return 0; // Retorna open si es nulo.
-  return scheduler->gateLeftClosed; // Retorna estado (0=open, 1=closing, 2=closed).
+  if (!scheduler) return 0; // Retorna abierta si es nulo.
+  return scheduler->gateLeftClosed; // Retorna estado (0=abierta, 1=cerrando, 2=cerrada).
 } // Fin de ship_scheduler_get_gate_left_state.
 
 uint8_t ship_scheduler_get_gate_right_state(const ShipScheduler *scheduler) { // Obtiene estado puerta derecha.
-  if (!scheduler) return 0; // Retorna open si es nulo.
-  return scheduler->gateRightClosed; // Retorna estado (0=open, 1=closing, 2=closed).
+  if (!scheduler) return 0; // Retorna abierta si es nulo.
+  return scheduler->gateRightClosed; // Retorna estado (0=abierta, 1=cerrando, 2=cerrada).
 } // Fin de ship_scheduler_get_gate_right_state.
 
 void ship_scheduler_dump_status(const ShipScheduler *scheduler) { // Imprime estado del scheduler. 

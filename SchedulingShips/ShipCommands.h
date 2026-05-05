@@ -1,3 +1,4 @@
+// API publica para parsear comandos seriales.
 #pragma once // Evita inclusiones duplicadas. 
 
 #ifdef __cplusplus // Habilita linkage C para C++. 

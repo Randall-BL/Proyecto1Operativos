@@ -22,7 +22,7 @@ static const TestBoatSpec kScenario[] = { // Escenario fijo para todas las prueb
   { SIDE_LEFT, BOAT_PESQUERA, 3000, 7000, 2 } // Caso 5. 
 }; // Fin del escenario. 
 
-static void waitUntilIdle(ShipScheduler *scheduler, unsigned long timeoutMs); // Forward declaration para pruebas de flujo.
+static void waitUntilIdle(ShipScheduler *scheduler, unsigned long timeoutMs); // Declaracion adelantada para pruebas de flujo.
 
 static bool gCurrentFlowTestFailed = false; // Resultado acumulado del caso actual.
 static uint16_t gCurrentFlowAssertions = 0; // Cantidad de aserciones ejecutadas.
@@ -115,9 +115,9 @@ static bool run_flow_test_sign_switch_timer(ShipScheduler *scheduler) { // Verif
   return flow_test_end(); // Retorna resultado del caso.
 } // Fin de run_flow_test_sign_switch_timer.
 
-static bool run_flow_test_sign_fallback_and_tico(ShipScheduler *scheduler) { // Verifica fallback de letrero y comportamiento tico.
+static bool run_flow_test_sign_fallback_and_tico(ShipScheduler *scheduler) { // Verifica alternativa del letrero y comportamiento tico.
   if (!scheduler) return false; // Valida puntero.
-  flow_test_begin("Fallback letrero y Tico"); // Inicia caso.
+  flow_test_begin("Alternativa letrero y Tico"); // Inicia caso.
 
   ship_scheduler_clear(scheduler); // Limpia estado.
   resetBoatSequence(); // Reinicia IDs para validacion.
@@ -126,10 +126,10 @@ static bool run_flow_test_sign_fallback_and_tico(ShipScheduler *scheduler) { // 
   ship_scheduler_set_sign_direction(scheduler, SIDE_LEFT); // Letrero apunta a izquierda.
 
   ship_scheduler_enqueue(scheduler, createBoatForTest(SIDE_RIGHT, BOAT_NORMAL, 700)); // Solo hay barco derecha.
-  ship_scheduler_update(scheduler); // Debe despachar por fallback.
+  ship_scheduler_update(scheduler); // Debe despachar por alternativa.
   const Boat *activeSign = ship_scheduler_get_active_boat(scheduler); // Lee activo.
   flow_test_assert(activeSign != NULL, "Con letrero y un solo lado disponible se despacha barco"); // Verifica que no se bloquee.
-  if (activeSign) flow_test_assert(activeSign->origin == SIDE_RIGHT, "Fallback permite lado opuesto cuando el del letrero esta vacio"); // Verifica origen.
+  if (activeSign) flow_test_assert(activeSign->origin == SIDE_RIGHT, "Alternativa permite lado opuesto cuando el del letrero esta vacio"); // Verifica origen.
   waitUntilIdle(scheduler, 10000); // Deja terminar.
 
   ship_scheduler_clear(scheduler); // Reinicia para tico.
@@ -335,7 +335,7 @@ void run_flow_control_tests(ShipScheduler *scheduler) { // Ejecuta bateria de co
 
   if (run_flow_test_fairness_window(scheduler)) passed++; // Ejecuta equidad.
   if (run_flow_test_sign_switch_timer(scheduler)) passed++; // Ejecuta letrero por tiempo.
-  if (run_flow_test_sign_fallback_and_tico(scheduler)) passed++; // Ejecuta fallback y tico.
+  if (run_flow_test_sign_fallback_and_tico(scheduler)) passed++; // Ejecuta alternativa y tico.
   if (run_flow_test_no_collision(scheduler)) passed++; // Ejecuta no-colision.
 
   ship_logln(""); // Separador final.

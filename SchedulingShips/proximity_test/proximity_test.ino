@@ -12,6 +12,7 @@ unsigned long pollMs = 200UL;
 bool running = true;
 unsigned long lastMillis = 0;
 
+// Inicializa Serial y la configuracion de pines por defecto.
 void setup() {
   Serial.begin(115200);
   while (!Serial) { delay(10); }
@@ -21,18 +22,20 @@ void setup() {
   Serial.println("Proximity test iniciado. Envia 'help' por Serial para comandos.");
 }
 
+// Mide distancia en centimetros usando el timing del HC-SR04.
 float measure_cm() {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
   digitalWrite(trigPin, HIGH);
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  unsigned long dur = pulseIn(echoPin, HIGH, 30000UL); // 30ms timeout
+  unsigned long dur = pulseIn(echoPin, HIGH, 30000UL); // Tiempo de espera de 30ms
   if (dur == 0) return 999.0f; // sin eco
   float dist = (dur * 0.0343f) / 2.0f; // velocidad sonido ~343 m/s
   return dist;
 }
 
+// Aplica la seleccion actual de pines TRIG/ECHO.
 void applyPins() {
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
@@ -41,6 +44,7 @@ void applyPins() {
   Serial.print(" ECHO="); Serial.println(echoPin);
 }
 
+// Parsea comandos seriales en tiempo de ejecucion para el sketch.
 void handleSerial() {
   if (Serial.available() == 0) return;
   String s = Serial.readStringUntil('\n');
@@ -83,6 +87,7 @@ void handleSerial() {
   Serial.println("Comando no reconocido. Escribe 'help'.");
 }
 
+// Bucle principal: procesa comandos y emite lecturas de distancia.
 void loop() {
   handleSerial();
   unsigned long now = millis();
