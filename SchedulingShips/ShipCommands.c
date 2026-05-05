@@ -1,3 +1,4 @@
+// Parser de comandos seriales para controlar el scheduler.
 #include "ShipCommands.h" // Declaraciones del parser. 
 
 #include <stdbool.h> // Booleanos en C. 

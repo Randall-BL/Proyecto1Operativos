@@ -24,7 +24,7 @@ const char *boatTypeName(BoatType type) { // Devuelve el nombre largo del tipo.
     case BOAT_PESQUERA: return "Pesquera"; // Nombre para pesquera. 
     case BOAT_PATRULLA: return "Patrulla"; // Nombre para patrulla. 
   } // Fin del switch. 
-  return "Desconocido"; // Fallback por defecto. 
+  return "Desconocido"; // Alternativa por defecto. 
 } // Fin de boatTypeName. 
 
 const char *boatSideName(BoatSide side) { // Devuelve etiqueta del lado. 
@@ -39,7 +39,7 @@ const char *boatTypeShort(BoatType type) { // Devuelve etiqueta corta del tipo.
     case BOAT_PESQUERA: return "P"; // Letra para pesquera. 
     case BOAT_PATRULLA: return "U"; // Letra para patrulla. 
   } // Fin del switch. 
-  return "?"; // Fallback por defecto. 
+  return "?"; // Alternativa por defecto. 
 } // Fin de boatTypeShort. 
 
 uint16_t boatColor(BoatType type) { // Devuelve color RGB565 por tipo. 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Display Simulator para Scheduling Ships
+Simulador de pantalla para Scheduling Ships
 Conecta por serial al ESP32 y visualiza el estado del canal en tiempo real
 Con interfaz de comandos como Arduino IDE
 """
@@ -17,7 +17,10 @@ import re
 import os
 
 class SchedulingShipsDisplay:
+    """Interfaz Tkinter que refleja la pantalla embebida y los logs seriales."""
+
     def __init__(self, root, port='COM6', baudrate=115200):
+        """Inicializa estado de UI, hilo serial y modelos de vista."""
         self.root = root
         self.root.title("Scheduling Ships - Display + Serial Monitor")
         self.root.geometry("1200x700")
@@ -32,7 +35,7 @@ class SchedulingShipsDisplay:
         self.app_start_ts = time.time()
         self.last_serial_log = None
 
-        # Display físico: 128x160 (ancho x alto)
+        # Pantalla fisica: 128x160 (ancho x alto)
         self.tft_width = 128
         self.tft_height = 160
         self.scale = 3
@@ -65,7 +68,7 @@ class SchedulingShipsDisplay:
         # Cache de tipo por id para enlazar "Start -> barco #N" con el tipo real
         self.boat_type_by_id = {}
 
-        # Cache de lado de origen por id para respetar el spawn real
+        # Cache de lado de origen por id para respetar la aparicion real
         self.boat_origin_by_id = {}
 
         # Cache de algoritmo por id para mostrar el algoritmo que tenia cada barco al entrar a cola
@@ -92,15 +95,15 @@ class SchedulingShipsDisplay:
             'collision_count': 0,
         }
         
-        # Main frame con dos columnas
+        # Marco principal con dos columnas
         main_frame = ttk.Frame(root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # ===== COLUMNA IZQUIERDA: DISPLAY =====
+        # ===== COLUMNA IZQUIERDA: PANTALLA =====
         display_frame = ttk.LabelFrame(main_frame, text="Display TFT (128x160)")
         display_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         
-        # Canvas para el display (escalado 3x para mejor visualización)
+        # Canvas para la pantalla (escalado 3x para mejor visualizacion)
         self.canvas = tk.Canvas(
             display_frame,
             bg='black',
@@ -123,7 +126,7 @@ class SchedulingShipsDisplay:
         serial_frame = ttk.LabelFrame(main_frame, text="Serial Monitor & Comandos")
         serial_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         
-        # Serial monitor (scrolledtext)
+        # Monitor serial (scrolledtext)
         ttk.Label(serial_frame, text="Salida Serial:", font=("Arial", 9, "bold")).pack(anchor='w', padx=5, pady=(5, 0))
         self.serial_output = scrolledtext.ScrolledText(
             serial_frame, 
@@ -158,11 +161,11 @@ class SchedulingShipsDisplay:
         examples_text.pack(anchor='w', padx=5, pady=5)
         examples.pack(fill=tk.X, padx=5, pady=5)
         
-        # Inicia conexión serial en thread
+        # Inicia conexion serial en un hilo
         self.serial_thread = threading.Thread(target=self.serial_loop, daemon=True)
         self.serial_thread.start()
         
-        # Redraw loop
+        # Bucle de redibujo
         self.redraw()
     
     def log_serial(self, message):
@@ -171,7 +174,7 @@ class SchedulingShipsDisplay:
             return
         self.last_serial_log = message
         self.serial_output.insert(tk.END, message + '\n')
-        self.serial_output.see(tk.END)  # Auto-scroll
+        self.serial_output.see(tk.END)  # Auto-desplazamiento
     
     def connect_serial(self):
         """Intenta conectar al puerto serial"""
@@ -246,6 +249,7 @@ class SchedulingShipsDisplay:
                 self.status_label.config(text=text, foreground=color)
 
     def detect_direction(self, line):
+        """Infiere la direccion a partir de una linea de log."""
         lower = line.lower()
         if "der->izq" in lower or "r->l" in lower or "right" in lower:
             return 'RL'
@@ -254,6 +258,7 @@ class SchedulingShipsDisplay:
         return 'LR'
 
     def normalize_boat_type(self, raw_type):
+        """Normaliza el tipo de barco a un token canonico."""
         if not raw_type:
             return None
         value = raw_type.strip().lower()
@@ -267,6 +272,7 @@ class SchedulingShipsDisplay:
         return aliases.get(value, value)
 
     def normalize_algorithm(self, raw_algorithm):
+        """Normaliza el nombre del algoritmo a una etiqueta canonica."""
         if not raw_algorithm:
             return 'FCFS'
         value = raw_algorithm.strip().lower()
@@ -282,6 +288,7 @@ class SchedulingShipsDisplay:
         return aliases.get(value, raw_algorithm.strip().upper())
 
     def algorithm_short(self, algorithm_name):
+        """Devuelve una etiqueta de un caracter para el algoritmo."""
         normalized = self.normalize_algorithm(algorithm_name)
         return {
             'FCFS': 'F',
@@ -293,6 +300,7 @@ class SchedulingShipsDisplay:
         }.get(normalized, normalized[:1])
 
     def normalize_boat_origin(self, raw_origin):
+        """Normaliza el origen a tokens izquierda/derecha."""
         if not raw_origin:
             return None
         value = raw_origin.strip().lower()
@@ -351,28 +359,32 @@ class SchedulingShipsDisplay:
     
 
     def queue_for_origin(self, boat_origin):
+        """Selecciona la cola que corresponde al origen."""
         return self.queue_right if boat_origin == 'right' else self.queue_left
 
     def duration_for_boat_type(self, boat_type):
+        """Devuelve la duracion de animacion en segundos para el tipo de barco."""
         if not boat_type:
             boat_type = 'normal'
 
         duration_ms = self.service_time_by_type_ms.get(boat_type)
         if duration_ms is None:
-            # No se cargó desde ShipModel.c: informar y usar fallback seguro (1000ms)
+            # No se cargó desde ShipModel.c: informar y usar alternativa segura (1000ms)
             try:
-                self.serial_queue.put(("log", f"Aviso: tiempo para tipo '{boat_type}' no cargado desde ShipModel.c; usando fallback 1000ms"))
+                self.serial_queue.put(("log", f"Aviso: tiempo para tipo '{boat_type}' no cargado desde ShipModel.c; usando alternativa 1000ms"))
             except Exception:
                 pass
             duration_ms = 1000
         return duration_ms / 1000.0
 
     def origin_to_direction(self, boat_origin):
+        """Convierte el origen en una etiqueta de direccion."""
         if boat_origin == 'right':
             return 'RL'
         return 'LR'
 
     def add_boat_to_queue(self, boat_id, boat_origin, boat_type=None, boat_algorithm=None, front=False):
+        """Inserta o mueve un barco dentro de la cola adecuada."""
         boat_origin = self.normalize_boat_origin(boat_origin) or 'left'
         boat_algorithm = self.normalize_algorithm(boat_algorithm or self.state.get('algorithm', 'FCFS'))
         meta = self.boat_algorithm_by_id.get(boat_id)
@@ -398,18 +410,21 @@ class SchedulingShipsDisplay:
             queue.append(boat_id)
 
     def remove_boat_from_queues(self, boat_id):
+        """Elimina un id de barco de ambas colas."""
         if boat_id in self.queue_left:
             self.queue_left.remove(boat_id)
         if boat_id in self.queue_right:
             self.queue_right.remove(boat_id)
 
     def current_boat_label(self, boat_id):
+        """Compone la etiqueta corta usada en los cuadros de cola."""
         meta = self.boat_algorithm_by_id.get(boat_id, {})
         boat_type = meta.get('type') or '?'
         algo = meta.get('algorithm') or self.state.get('algorithm', 'FCFS')
         return f"#{boat_id} {self.boat_type_short(boat_type)} {self.algorithm_short(algo)}"
 
     def boat_type_short(self, boat_type):
+        """Devuelve la letra corta para el tipo de barco."""
         normalized = self.normalize_boat_type(boat_type)
         return {
             'normal': 'N',
@@ -418,10 +433,11 @@ class SchedulingShipsDisplay:
         }.get(normalized, '?')
 
     def boat_fill_color(self, boat_type):
+        """Devuelve el color de relleno en hex para el tipo de barco."""
         normalized = self.normalize_boat_type(boat_type)
         return {
-            'normal': '#ffd166',
-            'pesquera': '#06d6a0',
+            'normal': "#818181",
+            'pesquera': "#3abac4",
             'patrulla': '#ef476f',
         }.get(normalized, '#9aa0a6')
     
@@ -447,7 +463,7 @@ class SchedulingShipsDisplay:
                 algo_value = line.split(":", 1)[1].strip().split()[0]
                 self.state['algorithm'] = self.normalize_algorithm(algo_value)
 
-            # Detect active boat
+            # Detecta barco activo
             if "Start ->" in line and "barco #" in line:
                 match = re.search(r'barco #(\d+)', line)
                 if match:
@@ -468,7 +484,7 @@ class SchedulingShipsDisplay:
                     self.crossing['active'] = True
                     self.remove_boat_from_queues(boat_id)
             
-            # Detect boat completion
+            # Detecta finalizacion de barco
             if "Barco finalizado" in line and "#" in line:
                 match = re.search(r'#(\d+).*origen=([LR\w]+)', line)
                 if match:
@@ -542,26 +558,26 @@ class SchedulingShipsDisplay:
                         self.crossing['boat_origin'] = None
                         self.crossing['boat_algorithm'] = None
 
-            # NOTE: '[FLOW][SAFE] Requeue' contains scheduler-internal hints.
-            # The display must not implement scheduling decisions; ignore these lines
-            # so the simulator only mirrors explicit enqueue/requeue logs emitted by firmware.
+            # Nota: '[FLOW][SAFE] Requeue' contiene pistas internas del scheduler.
+            # La pantalla no debe tomar decisiones de planificacion; se ignoran estas lineas
+            # para que el simulador solo refleje logs explicitos de encolado/reencolado.
             if "[FLOW][SAFE] Requeue" in line:
-                # Intentionally ignored by display-only simulator
+                # Se ignora a proposito en el simulador de pantalla
                 pass
             
-            # Detect ready count
+            # Detecta cantidad en cola
             if "Ready count:" in line:
                 match = re.search(r'Ready count: (\d+)', line)
                 if match:
                     self.state['ready_count'] = int(match.group(1))
             
-            # Detect gate status
+            # Detecta estado de compuertas
             if "CERRADO" in line or "CLOSED" in line:
                 self.state['gate_status'] = 'CERRADO'
             if "ABIERTO" in line or "OPEN" in line:
                 self.state['gate_status'] = 'ABIERTO'
             
-            # Detect emergency
+            # Detecta emergencia
             if "ALERTA DE PROXIMIDAD" in line or "PROXIMITY_ALERT" in line:
                 self.state['emergency_mode'] = 'ALERTA'
             if "GATES_CLOSED" in line:
@@ -687,7 +703,7 @@ class SchedulingShipsDisplay:
             sensor_text = f"S:{self.state['proximity_distance']}cm"
             self.canvas.create_text(sx(w // 2), sy(bottom - 6), text=sensor_text, fill='yellow', font=("Arial", 7))
 
-        # Redraw a 20 FPS para animación fluida
+        # Redibuja a 20 FPS para animacion fluida
         self.root.after(50, self.redraw)
 
     def draw_queue_items(self, queue_ids, sx, sy, panel_left, panel_right, top_y, bottom_y):
