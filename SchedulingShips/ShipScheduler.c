@@ -114,8 +114,6 @@ static bool ship_scheduler_is_tico_safe(const ShipScheduler *scheduler, const Bo
   if (scheduler->activeCount == 0) return true; // Sin activos, no hay riesgo.
 
   BoatSide side = candidate->origin; // Lado del candidato.
-  unsigned long minGapMs = CROSSING_MARGIN_MS; // Margen temporal minimo.
-
   for (uint8_t i = 0; i < scheduler->activeCount; i++) { // Evalua contra cada activo.
     Boat *active = scheduler->activeBoats[i];
     if (!active) continue; // Salta nulos.
@@ -123,11 +121,24 @@ static bool ship_scheduler_is_tico_safe(const ShipScheduler *scheduler, const Bo
     if (!active->allowedToMove) return false; // Evita iniciar si un activo esta detenido.
 
     unsigned long elapsed = ship_scheduler_boat_elapsed_millis(active); // Progreso del activo.
+    // Calcula margen minimo dinámico según tipos (activo, candidato), factor configurable, y velocidad/servicio.
+    float pairFactor = 1.0f;
+    if (scheduler) {
+      BoatType at = active->type;
+      BoatType ct = candidate->type;
+      if (at >= 0 && at < 3 && ct >= 0 && ct < 3) pairFactor = scheduler->ticoMarginFactor[at][ct];
+    }
+    float serviceScale = 1.0f;
+    unsigned long baseSvc = serviceTimeForType(active->type);
+    if (baseSvc > 0) serviceScale = (float)active->serviceMillis / (float)baseSvc;
+    float speedScale = 1.0f;
+    if (scheduler && scheduler->boatSpeedMetersPerSec > 0) speedScale = 18.0f / (float)scheduler->boatSpeedMetersPerSec; // 18 = default speed
+    unsigned long minGapMs = (unsigned long)((float)TICO_INITIAL_MARGIN * pairFactor * serviceScale * speedScale);
     if (elapsed < minGapMs) return false; // Evita solapamiento inicial.
 
     if (candidate->serviceMillis < active->serviceMillis && active->serviceMillis > 0) { // Riesgo si el candidato es mas rapido.
       float gapFraction = (float)minGapMs / (float)active->serviceMillis; // Margen relativo.
-      if (gapFraction > 0.02f) gapFraction = 0.18f; // Evita margenes excesivos.
+      if (gapFraction > 0.02f) gapFraction = TICO_SAFETY_MARGIN; // Evita margenes excesivos.
       //ship_logf(" gapFraction=%.2f\n", gapFraction); // Depuracion: detalles de la evaluacion.
       float ratio = (float)candidate->serviceMillis / (float)active->serviceMillis; // Relacion de tiempos.
       float requiredElapsed = (1.0f - (1.0f - gapFraction) * ratio) * (float)active->serviceMillis; // Elapsed minimo.
@@ -239,6 +250,12 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   if (scheduler->channelLengthMeters == 0) scheduler->channelLengthMeters = 120; // Largo por defecto del canal.
   if (scheduler->boatSpeedMetersPerSec == 0) scheduler->boatSpeedMetersPerSec = 18; // Velocidad por defecto.
   scheduler->flowMode = FLOW_TICO; // Flujo por defecto (sin control).
+  // Inicializa matriz de factores TICO con 1.0 (3 tipos x 3 tipos)
+  for (int a = 0; a < 3; a++) {
+    for (int b = 0; b < 3; b++) {
+      scheduler->ticoMarginFactor[a][b] = 1.0f;
+    }
+  }
   scheduler->signDirection = SIDE_LEFT; // Letrero por defecto a la izquierda.
   scheduler->signLastSwitchAt = millis(); // Marca inicial de letrero.
   scheduler->fairnessCurrentSide = SIDE_LEFT; // Lado inicial de equidad.
@@ -437,6 +454,21 @@ bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler) { // Lee tr
   if (!scheduler) return false; // Retorna por defecto.
   return scheduler->flowLoggingEnabled; // Retorna estado.
 } // Fin de ship_scheduler_get_flow_logging.
+
+void ship_scheduler_set_tico_margin_factor(ShipScheduler *scheduler, BoatType activeType, BoatType candidateType, float factor) {
+  if (!scheduler) return;
+  if (activeType < 0 || activeType >= 3) return;
+  if (candidateType < 0 || candidateType >= 3) return;
+  if (factor <= 0.0f) factor = 1.0f;
+  scheduler->ticoMarginFactor[activeType][candidateType] = factor;
+}
+
+float ship_scheduler_get_tico_margin_factor(const ShipScheduler *scheduler, BoatType activeType, BoatType candidateType) {
+  if (!scheduler) return 1.0f;
+  if (activeType < 0 || activeType >= 3) return 1.0f;
+  if (candidateType < 0 || candidateType >= 3) return 1.0f;
+  return scheduler->ticoMarginFactor[activeType][candidateType];
+}
 
 void ship_scheduler_set_sensor_enabled(ShipScheduler *scheduler, bool enabled) { // Habilita/deshabilita sensor.
   if (!scheduler) return; // Valida puntero.
