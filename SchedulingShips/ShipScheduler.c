@@ -250,12 +250,20 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   if (scheduler->channelLengthMeters == 0) scheduler->channelLengthMeters = 120; // Largo por defecto del canal.
   if (scheduler->boatSpeedMetersPerSec == 0) scheduler->boatSpeedMetersPerSec = 18; // Velocidad por defecto.
   scheduler->flowMode = FLOW_TICO; // Flujo por defecto (sin control).
-  // Inicializa matriz de factores TICO con 1.0 (3 tipos x 3 tipos)
-  for (int a = 0; a < 3; a++) {
-    for (int b = 0; b < 3; b++) {
-      scheduler->ticoMarginFactor[a][b] = 1.0f;
-    }
-  }
+  // Configuracion fija de margen TICO por par (activo, candidato).
+  // Filas (activo): NORMAL, PESQUERA, PATRULLA.
+  // Columnas (candidato): NORMAL, PESQUERA, PATRULLA.
+  scheduler->ticoMarginFactor[BOAT_NORMAL][BOAT_NORMAL] = 1.00f;
+  scheduler->ticoMarginFactor[BOAT_NORMAL][BOAT_PESQUERA] = 1.20f;
+  scheduler->ticoMarginFactor[BOAT_NORMAL][BOAT_PATRULLA] = 1.35f;
+
+  scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_NORMAL] = 0.40f;
+  scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_PESQUERA] = 1.00f;
+  scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_PATRULLA] = 1.20f;
+
+  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_NORMAL] = 0.35f;
+  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_PESQUERA] = 0.80f;
+  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_PATRULLA] = 1.00f;
   scheduler->signDirection = SIDE_LEFT; // Letrero por defecto a la izquierda.
   scheduler->signLastSwitchAt = millis(); // Marca inicial de letrero.
   scheduler->fairnessCurrentSide = SIDE_LEFT; // Lado inicial de equidad.
