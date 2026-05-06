@@ -258,12 +258,12 @@ void ship_scheduler_begin(ShipScheduler *scheduler) { // Inicializa el scheduler
   scheduler->ticoMarginFactor[BOAT_NORMAL][BOAT_PATRULLA] = 1.35f;
 
   scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_NORMAL] = 0.40f;
-  scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_PESQUERA] = 1.00f;
+  scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_PESQUERA] = 0.50f;
   scheduler->ticoMarginFactor[BOAT_PESQUERA][BOAT_PATRULLA] = 1.20f;
 
   scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_NORMAL] = 0.35f;
-  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_PESQUERA] = 0.80f;
-  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_PATRULLA] = 1.00f;
+  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_PESQUERA] = 0.30f;
+  scheduler->ticoMarginFactor[BOAT_PATRULLA][BOAT_PATRULLA] = 0.30f;
   scheduler->signDirection = SIDE_LEFT; // Letrero por defecto a la izquierda.
   scheduler->signLastSwitchAt = millis(); // Marca inicial de letrero.
   scheduler->fairnessCurrentSide = SIDE_LEFT; // Lado inicial de equidad.
