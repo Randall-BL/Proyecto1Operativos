@@ -761,11 +761,11 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   b->allowedToMove = true; // Permite avance al despachar.
   ship_logf("Dispatching -> barco #%u (rem=%lu svc=%lu)\n", b->id, b->remainingMillis, b->serviceMillis);
   if (b->taskHandle) {
-    ship_logf("[DISPATCH DEBUG] Enviando NOTIF_CMD_RUN a barco #%u (taskHandle=%p)\n", b->id, (void*)b->taskHandle); // Depuracion: enviando notificacion.
+    FLOW_LOG(scheduler, "[DISPATCH DEBUG] Enviando NOTIF_CMD_RUN a barco #%u (taskHandle=%p)\n", b->id, (void*)b->taskHandle);
     xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea.
   } else {
-    ship_logf("[DISPATCH DEBUG] ERROR: barco #%u NO TIENE taskHandle!\n", b->id); // Depuracion: error critico.
-  } 
+    FLOW_LOG(scheduler, "[DISPATCH DEBUG] ERROR: barco #%u NO TIENE taskHandle!\n", b->id);
+  }
 
   ship_logf("Start -> barco #%u\n", b->id); // Log del inicio. 
   return true; // Indica que se despacho un barco.
@@ -778,10 +778,14 @@ static void ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // 
   if (ship_scheduler_get_active_elapsed_millis(scheduler) < scheduler->rrQuantumMillis) return; // Si no consume quantum, sale. 
 
   Boat *preempted = scheduler->activeBoat; // Guarda el activo. 
-  if (preempted->taskHandle) xTaskNotify(preempted->taskHandle, NOTIF_CMD_PAUSE, eSetValueWithOverwrite); // Pausa la tarea. 
+  if (preempted->taskHandle) {
+    FLOW_LOG(scheduler, "[RR] Pausando activo #%u por quantum\n", preempted->id);
+    xTaskNotify(preempted->taskHandle, NOTIF_CMD_PAUSE, eSetValueWithOverwrite); // Pausa la tarea.
+  }
   ship_scheduler_remove_active(scheduler, preempted); // Quita de activos. 
   ship_scheduler_requeue_boat(scheduler, preempted, false); // Reencola al final. 
   ship_scheduler_start_next_boat(scheduler); // Arranca el siguiente. 
+  if (scheduler) ship_display_render_forced(scheduler); // Fuerza refresco tras preempcion para actualizar pantalla.
 } // Fin de ship_scheduler_preempt_active_for_rr. 
 
 static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler, Boat *b) { // Finaliza el barco activo. 
