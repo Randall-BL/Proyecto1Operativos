@@ -31,6 +31,8 @@ typedef enum ShipEmergencyMode { // Estados de emergencia del canal.
 typedef struct ShipScheduler { // Estructura con el estado del scheduler. 
   Boat *readyQueue[MAX_BOATS]; // Cola de listos (punteros). 
   uint8_t readyCount; // Cantidad de barcos listos. 
+  Boat *activeBoats[MAX_BOATS]; // Barcos activos simultaneos.
+  uint8_t activeCount; // Cantidad de barcos activos.
   Boat *activeBoat; // Barco activo actual. 
   bool hasActiveBoat; // Flag de barco activo. 
   unsigned long crossingStartedAt; // Marca de inicio del cruce. 
@@ -99,6 +101,8 @@ void ship_scheduler_set_flow_logging(ShipScheduler *scheduler, bool enabled); //
 bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler); // Lee estado de trazas de flujo.
 
 const Boat *ship_scheduler_get_active_boat(const ShipScheduler *scheduler); // Devuelve barco activo. 
+uint8_t ship_scheduler_get_active_count(const ShipScheduler *scheduler); // Devuelve cantidad de barcos activos.
+const Boat *ship_scheduler_get_active_boat_at(const ShipScheduler *scheduler, uint8_t index); // Devuelve barco activo por indice.
 uint8_t ship_scheduler_get_ready_count(const ShipScheduler *scheduler); // Devuelve listos. 
 const Boat *ship_scheduler_get_ready_boat(const ShipScheduler *scheduler, uint8_t index); // Devuelve barco en cola. 
 uint8_t ship_scheduler_get_waiting_count(const ShipScheduler *scheduler, BoatSide side); // Devuelve cantidad por lado. 
