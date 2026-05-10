@@ -3,7 +3,7 @@
 #include <Adafruit_GFX.h> // Libreria base de graficos. 
 #include <Adafruit_ST7735.h> // Controlador de la pantalla ST7735. 
 #include <FS.h> // API base de sistema de archivos.
-#include <SPIFFS.h> // SPIFFS para cargar archivos de configuracion.
+#include <LittleFS.h> // LittleFS para cargar archivos de configuracion.
 
 #include "ShipPins.h" // Mapeo de pines para la TFT. 
 #include "ShipModel.h" // Modelo de barcos en C. 
@@ -130,14 +130,21 @@ static bool process_runtime_sensor_command(String command) { // Procesa comandos
 // Carga la configuracion del canal desde SPIFFS si existe.
 static void load_channel_config_from_spiffs(ShipScheduler *scheduler) { // Carga configuracion de canal desde archivo.
   if (!scheduler) return; // Valida scheduler.
-  if (!SPIFFS.begin(true)) { // Monta SPIFFS.
-    Serial.println("No se pudo montar SPIFFS; usando configuracion por defecto."); // Informa fallo.
+  // Fuerza un estado base para que la configuracion aplicada coincida exactamente con el archivo.
+  ship_scheduler_clear(scheduler); // Limpia ejecucion/colas actuales.
+  ship_scheduler_demo_clear(scheduler); // Reinicia manifiesto de demo configurado.
+  ship_model_set_step_size(BOAT_NORMAL, 1); // Default tipo normal.
+  ship_model_set_step_size(BOAT_PESQUERA, 1); // Default tipo pesquera.
+  ship_model_set_step_size(BOAT_PATRULLA, 2); // Default tipo patrulla.
+
+  if (!LittleFS.begin(true)) { // Monta LittleFS.
+    Serial.println("No se pudo montar LittleFS; usando configuracion por defecto."); // Informa fallo.
     return; // Sale con configuracion por defecto.
   }
 
-  File cfg = SPIFFS.open("/channel_config.txt", "r"); // Abre archivo de configuracion.
+  File cfg = LittleFS.open("/channel_config.txt", "r"); // Abre archivo de configuracion.
   if (!cfg) { // Si no existe archivo.
-    Serial.println("No existe /channel_config.txt; usando configuracion por defecto."); // Informa ausencia.
+    Serial.println("No existe /channel_config.txt en LittleFS; usando configuracion por defecto."); // Informa ausencia.
     return; // Sale con configuracion por defecto.
   }
 
@@ -157,6 +164,14 @@ static void load_channel_config_from_spiffs(ShipScheduler *scheduler) { // Carga
   Serial.print("Configuracion de canal cargada desde SPIFFS: "); // Log de resultado.
   Serial.print(applied); // Imprime cantidad de lineas aplicadas.
   Serial.println(" lineas."); // Cierra mensaje.
+  Serial.print("Demo entries cargadas desde archivo: "); // Diagnostico de demo.
+  Serial.println(scheduler->demoCount); // Cantidad de demoadd procesados.
+  Serial.print("[CONFIG] Llamando ship_scheduler_load_demo_manifest con demoCount=");
+  Serial.println(scheduler->demoCount);
+  ship_scheduler_load_demo_manifest(scheduler); // Materializa la demo definida en el archivo.
+  ship_scheduler_rebuild_slots(scheduler); // Reconstruye slots tras recrear la demo.
+  Serial.print("[CONFIG] readyCount despues de load_demo_manifest=");
+  Serial.println(scheduler->readyCount);
 } // Fin de load_channel_config_from_spiffs.
 
 // Inicializacion de Arduino: inicializa perifericos, scheduler y pantalla.
@@ -175,7 +190,6 @@ void setup() { // Funcion de inicializacion Arduino.
   ship_scheduler_begin(&shipScheduler); // Inicializa el scheduler. 
   configure_proximity_sensor_pins(); // Inicializa pines del sensor de proximidad.
   load_channel_config_from_spiffs(&shipScheduler); // Carga parametros del canal si existen.
-  ship_scheduler_load_demo_manifest(&shipScheduler); // Carga un manifiesto demo. 
   ship_display_render(&shipScheduler); // Dibujo inicial de la pantalla. 
 
   Serial.println("Scheduler listo. Escribe 'help' para comandos."); // Mensaje de listo. 
@@ -190,6 +204,10 @@ void loop() { // Bucle principal Arduino.
     command.trim(); // Normaliza espacios de extremos.
     if (command.equalsIgnoreCase("cfgload")) { // Permite recargar archivo de configuracion.
       load_channel_config_from_spiffs(&shipScheduler); // Recarga parametros desde SPIFFS.
+      ship_display_render_forced(&shipScheduler); // Refresca pantalla con la nueva config.
+    } else if (command.equalsIgnoreCase("demo")) { // Demo siempre sincronizada con archivo.
+      load_channel_config_from_spiffs(&shipScheduler); // Relee config desde SPIFFS.
+      ship_display_render_forced(&shipScheduler); // Refresca UI.
     } else if (process_runtime_sensor_command(command)) { // Procesa comandos de hardware de sensor.
       // Comando manejado en tiempo de ejecucion.
     } else { // Cualquier otro comando.

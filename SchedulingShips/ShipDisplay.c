@@ -3,6 +3,7 @@
 
 #include <freertos/FreeRTOS.h> // Tipos base FreeRTOS.
 #include <freertos/semphr.h> // SemaphoreHandle_t y API de mutex.
+#include <math.h>
 
 // Colores basicos en formato RGB565 (sin depender de encabezados C++).
 static const uint16_t COLOR_BLACK = 0x0000; // Negro.
@@ -65,6 +66,24 @@ static unsigned long ship_display_boat_elapsed_millis(const Boat *boat) {
   if (!boat) return 0; // Valida puntero.
   if (boat->serviceMillis <= boat->remainingMillis) return 0; // Evita underflow.
   return boat->serviceMillis - boat->remainingMillis; // Retorna elapsed.
+}
+
+// Mapea un indice de casilla de la lista a una coordenada X en pixeles dentro del canal.
+static int16_t slot_index_to_x(const ShipScheduler *s, int16_t slotIndex) {
+  if (!s) return CANAL_X + 2;
+  if (s->listLength == 0) return CANAL_X + 2;
+  // Si el barco aun no tiene slot (-1) devolvemos inicio segun lado por seguridad.
+  if (slotIndex < 0) return CANAL_X + 2;
+
+  float ratio = ship_scheduler_get_list_to_visual_ratio(s); // visual per list-slot
+  int visualIndex = (int)roundf(slotIndex * ratio);
+  int visualLen = s->visualChannelLength > 0 ? s->visualChannelLength : s->listLength;
+  int availPixels = CANAL_W - BOAT_SIZE - 4; // espacio util
+  if (visualLen <= 1) return CANAL_X + 2;
+  if (visualIndex < 0) visualIndex = 0;
+  if (visualIndex > visualLen - 1) visualIndex = visualLen - 1;
+  int16_t x = CANAL_X + 2 + (visualIndex * availPixels) / (visualLen - 1);
+  return x;
 }
 
 // Dibuja el fondo estatico de la interfaz.
@@ -150,17 +169,20 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
     for (uint8_t i = 0; i < activeCount; i++) { // Dibuja cada activo.
       const Boat *boat = ship_scheduler_get_active_boat_at(scheduler, i); // Barco activo.
       if (!boat) continue; // Salta nulos.
-      unsigned long elapsed = ship_display_boat_elapsed_millis(boat); // Tiempo transcurrido.
-
-      int16_t travelStart = boat->origin == SIDE_RIGHT ? CANAL_X + CANAL_W - BOAT_SIZE - 2 : CANAL_X + 2; // Inicio segun origen.
-      int16_t travelEnd = boat->origin == SIDE_RIGHT ? CANAL_X + 2 : CANAL_X + CANAL_W - BOAT_SIZE - 2; // Fin segun origen.
-      int16_t boatX = ship_display_map_progress(elapsed, boat->serviceMillis, travelStart, travelEnd); // Posicion X.
-
-      int16_t minX = CANAL_X + 2; // Limite izquierdo.
-      int16_t maxX = CANAL_X + CANAL_W - BOAT_SIZE - 2; // Limite derecho.
-      if (boatX < minX) boatX = minX; // Aplica limite izq.
-      if (boatX > maxX) boatX = maxX; // Aplica limite der.
-
+      // Preferimos posicion por casilla si el barco indica currentSlot
+      int16_t boatX;
+      if (boat->currentSlot >= 0 && scheduler->listLength > 0) {
+        boatX = slot_index_to_x(scheduler, boat->currentSlot);
+      } else {
+        unsigned long elapsed = ship_display_boat_elapsed_millis(boat);
+        int16_t travelStart = boat->origin == SIDE_RIGHT ? CANAL_X + CANAL_W - BOAT_SIZE - 2 : CANAL_X + 2; // Inicio segun origen.
+        int16_t travelEnd = boat->origin == SIDE_RIGHT ? CANAL_X + 2 : CANAL_X + CANAL_W - BOAT_SIZE - 2; // Fin segun origen.
+        boatX = ship_display_map_progress(elapsed, boat->serviceMillis, travelStart, travelEnd);
+        int16_t minX = CANAL_X + 2; // Limite izquierdo.
+        int16_t maxX = CANAL_X + CANAL_W - BOAT_SIZE - 2; // Limite derecho.
+        if (boatX < minX) boatX = minX; // Aplica limite izq.
+        if (boatX > maxX) boatX = maxX; // Aplica limite der.
+      }
       int16_t boatY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2); // Y centrado.
       draw_boat_square(boatX, boatY, boat, true); // Dibuja el barco activo.
     }
@@ -196,7 +218,14 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
       ship_display_hw_fill_rect(gPrevBoatX, gPrevBoatY, gPrevBoatW, gPrevBoatH, CANAL_BG); // Limpia la posicion anterior.
     }
 
-    draw_boat_square(boatData.boatX, boatData.boatY, activeBoat, true); // Dibuja el barco activo.
+    // Si el barco tiene currentSlot, dibujamos en la casilla; en caso contrario usamos el cálculo por tiempo.
+    int16_t drawX = boatData.boatX;
+    int16_t drawY = boatData.boatY;
+    if (activeBoat->currentSlot >= 0 && scheduler->listLength > 0) {
+      drawX = slot_index_to_x(scheduler, activeBoat->currentSlot);
+      drawY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2);
+    }
+    draw_boat_square(drawX, drawY, activeBoat, true); // Dibuja el barco activo.
 
     gPrevBoatX = boatData.boatX; // Actualiza X previa.
     gPrevBoatY = boatData.boatY; // Actualiza Y previa.
@@ -262,6 +291,17 @@ void ship_display_begin(void) {
   }
 
   gLastUiRefresh = 0; // Fuerza primer redibujo.
+}
+
+void ship_display_acquire(uint32_t waitMs) {
+  if (!gDisplayMutex) return;
+  TickType_t ticks = pdMS_TO_TICKS(waitMs);
+  xSemaphoreTake(gDisplayMutex, ticks);
+}
+
+void ship_display_release(void) {
+  if (!gDisplayMutex) return;
+  xSemaphoreGive(gDisplayMutex);
 }
 
 // API C: dibujo completo (adquiere mutex internamente).
