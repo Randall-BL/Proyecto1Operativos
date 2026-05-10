@@ -82,6 +82,7 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint8_t gateRightClosed; // Estado puerta derecha (0=abierta, 1=cerrando, 2=cerrada).
   uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
   bool emergencyDispatchBlockedLogged; // Evita logs repetidos de despacho bloqueado.
+  unsigned long activeQuantumStartedAt; // Timestamp cuando el activo actual inicio su quantum
   // Matriz de factores ajustables por par (activo, candidato) para TICO
   // Índices: [activeType][candidateType] con BoatType en ShipModel.h (3x3)
   float ticoMarginFactor[3][3];
@@ -175,6 +176,7 @@ extern ShipScheduler *gScheduler; // Puntero global para callbacks de tareas.
 #define NOTIF_CMD_RUN 1UL // Comando RUN por notificacion. 
 #define NOTIF_CMD_PAUSE 2UL // Comando PAUSE por notificacion. 
 #define NOTIF_CMD_TERMINATE 3UL // Comando TERMINATE por notificacion. 
+#define NOTIF_CMD_SLOT_UPDATE 4UL // Notifica cambio en ocupacion de casillas (slot freed/changed)
 
 #ifdef __cplusplus // Cierra el bloque de linkage C. 
 } // Fin de extern "C". 

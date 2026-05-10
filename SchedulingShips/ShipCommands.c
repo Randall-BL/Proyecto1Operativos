@@ -37,7 +37,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
 
   if (strcmp(cursor, "help") == 0) { // Comando help. 
     ship_logln("Comandos: demo | clear | add <l|r> <n|p|u> [prio]"); // Lista comandos base. 
-    ship_logln("          alg <fcfs|sjf|strn|edf|rr|prio> [ms]"); // Lista alg. 
+    ship_logln("          alg <fcfs|sjf|strn|edf|rr|prio> [ms] | rr <ms> | quantum <ms>"); // Lista alg. 
     ship_logln("          flow <tico|fair|sign> | w <n> | sign <l|r> | signms <ms>"); // Lista flujo.
     ship_logln("          flowlog <on|off>"); // Trazas de flujo.
     ship_logln("          sensor <activate|deactivate|threshold|simulate> [param]"); // Sensor.
@@ -94,6 +94,23 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     } 
     return; // Termina. 
   } 
+
+  if (starts_with(cursor, "rr ") || starts_with(cursor, "quantum ")) { // Quantum RR explicito.
+    char *arg = strchr(cursor, ' '); // Busca valor.
+    if (arg) { // Si hay argumento.
+      trim_left(&arg); // Limpia espacios.
+      unsigned long quantum = strtoul(arg, NULL, 10); // Convierte a numero.
+      if (quantum > 0) { // Si es valido.
+        ship_scheduler_set_round_robin_quantum(scheduler, quantum); // Aplica quantum.
+        ship_logf("Quantum RR: %lums\n", ship_scheduler_get_round_robin_quantum(scheduler)); // Confirma.
+      } else { // Valor invalido.
+        ship_logln("Uso: rr <ms> | quantum <ms>"); // Ayuda.
+      }
+    } else { // Sin argumento.
+      ship_logln("Uso: rr <ms> | quantum <ms>"); // Ayuda.
+    }
+    return; // Termina.
+  }
 
   if (starts_with(cursor, "flow ")) { // Comando flow.
     char *arg = cursor + 5; // Salta el prefijo.

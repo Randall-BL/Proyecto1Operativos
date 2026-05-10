@@ -10,7 +10,7 @@ flow fair
 flowlog off
 
 # Parametro W para equidad (solo aplica en fair)
-w 1
+w 2
 
 # Tiempo de cambio del letrero en ms (solo aplica en modo sign)
 signms 8000
@@ -30,6 +30,7 @@ readymax 12
 
 # Algoritmo de scheduling de CPU para elegir siguiente barco
 alg rr
+rr 3000
 
 # Step size por tipo: n=normal, p=pesquera, u=patrulla
 step n 1
