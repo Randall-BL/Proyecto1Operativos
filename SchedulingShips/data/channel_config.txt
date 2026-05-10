@@ -16,7 +16,7 @@ w 4
 signms 8000
 
 # Direccion inicial del letrero: l (izquierda) | r (derecha)
-sign l
+sign r
 
 # Sensor de proximidad real (ultrasonico)
 # Cambia estos pines segun tu cableado: proxpin <trig> <echo>

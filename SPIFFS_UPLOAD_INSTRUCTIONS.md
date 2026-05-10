@@ -22,16 +22,16 @@ El ESP32-C6 tiene un SPIFFS/LittleFS vacío. El archivo `/channel_config.txt` no
 cd d:\tec\2026\i sem\sistemasoperativos\Proyecto1Operativos\SchedulingShips
 
 # Ejecutar mklittlefs (reemplaza la ruta si descargaste en otra ubicación)
-& "C:\Tools\mklittlefs.exe" -c "data" -p 256 -b 4096 -s 0x160000 "littlefs.bin"
+& "C:\Users\YITAN\OneDrive\Escritorio\Proyecto1Operativos\mklittlefs\mklittlefs.exe" -c "data" -p 256 -b 4096 -s 0x160000 "littlefs.bin"
 ```
-
+& "C:\Users\YITAN\OneDrive\Escritorio\Proyecto1Operativos\mklittlefs\mklittlefs.exe" -c "SchedulingShips\data" -p 256 -b 4096 -s 0x160000 "littlefs_correct.bin"
 Esto genera `littlefs.bin` con tamaño de 0x160000 (1.4 MB aprox).
 
 #### Paso 3: Flashear con esptool
 ```powershell
 python -m esptool --chip esp32c6 --port COM6 write_flash 0x290000 littlefs.bin
 ```
-
+python -m esptool --chip esp32 --port COM6 write_flash 0x290000 littlefs.bin
 ### Opción 3: Usar script Python (si tienes installed las herramientas)
 ```powershell
 python make_littlefs.py

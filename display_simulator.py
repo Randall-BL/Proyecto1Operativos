@@ -207,6 +207,19 @@ class SchedulingShipsDisplay:
                 self.serial_queue.put(("log", f"Serial error: {e}"))
                 time.sleep(1)
     
+    def clear_display_state(self):
+        """Limpia el estado visual de la pantalla (barcos en tránsito y colas)"""
+        self.crossings = []
+        self.queue_left = []
+        self.queue_right = []
+        self.boat_algorithm_by_id = {}
+        self.boat_type_by_id = {}
+        self.boat_origin_by_id = {}
+        self.state['completed_total'] = 0
+        self.state['completed_lr'] = 0
+        self.state['completed_rl'] = 0
+        self.log_serial("🔄 Pantalla limpiada - reinicio visual")
+
     def send_command(self):
         """Envía comando al ESP32 por puerto serial"""
         cmd = self.cmd_entry.get().strip()
@@ -223,6 +236,10 @@ class SchedulingShipsDisplay:
             # Agrega salto de línea y envía
             self.ser.write((cmd + '\n').encode('utf-8'))
             self.log_serial(f"> {cmd}")
+            
+            # Si es comando "demo", limpiar pantalla
+            if cmd.strip().lower() == 'demo':
+                self.clear_display_state()
         except Exception as e:
             self.log_serial(f"✗ Error al enviar: {e}")
 
@@ -527,6 +544,11 @@ class SchedulingShipsDisplay:
     def parse_line(self, line):
         """Parsea una línea del serial y actualiza estado"""
         try:
+            # Detecta reinicio/reboot del ESP32
+            if any(keyword in line.lower() for keyword in ['starting...', 'boot', 'reboot', 'reset', 'ets jul']):
+                self.clear_display_state()
+                return
+            
             # Cachea tipo al momento de alta: "Barco agregado: #7 tipo=Pesquera origen=..."
             if "Barco agregado:" in line and "tipo=" in line:
                 match = re.search(r'#(\d+).*tipo=([^\s]+)', line)
