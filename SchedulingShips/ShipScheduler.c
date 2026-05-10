@@ -439,6 +439,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
           dir = (b->origin == SIDE_LEFT) ? 1 : -1;
           // Intenta reservar la casilla de entrada
           int entryIndex = (b->origin == SIDE_LEFT) ? 0 : (int)(s->listLength - 1);
+          ship_logf("[BOAT TASK #%u] movesCount=%d perMoveMs=%lu totalSlots=%d stepSize=%u\n", b->id, movesCount, perMoveMs, totalSlotsToTravel, b->stepSize);
           while (b->remainingMillis > 0 && b->currentSlot < 0) {
             if (ship_scheduler_try_reserve_range(s, entryIndex, 1, b)) {
               b->currentSlot = entryIndex;
@@ -540,12 +541,14 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         desiredSteps = (uint8_t)((remainingSlots < b->stepSize) ? remainingSlots : b->stepSize);
       }
 
+      int startReserve = slot + dir; // primer casilla a reservar
+      ship_logf("[BOAT TASK #%u] desiredSteps=%u remainingSlots=%d startReserve=%d\n", b->id, desiredSteps, remainingSlots, startReserve);
+
       if (desiredSteps == 0) {
         // nothing to move
         continue;
       }
 
-      int startReserve = slot + dir; // primer casilla a reservar
       int16_t newSlot = -1;
 
       // Para pasos múltiples: intentamos reservar atomically el rango requerido
@@ -571,10 +574,12 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
           b->currentSlot = newSlot;
           currentSlot = newSlot;
           moveAccum = 0; // reinicia acumulador
+          ship_logf("[BOAT TASK #%u] moved to slot %d\n", b->id, newSlot);
           // Barco actualiza pantalla; ship_display_render gestiona el mutex internamente.
           ship_display_render_forced(s);
         } else {
-          // Si teniamos reserva previa y el move fallo, liberar el rango y esperar
+          // Si teniamos reserva previa y el move fallo, registrar y liberar el rango y esperar
+          ship_logf("[BOAT TASK #%u] blocked move: desiredSteps=%u remainingSlots=%d startReserve=%d\n", b->id, desiredSteps, remainingSlots, startReserve);
           if (reserved) ship_scheduler_release_range(s, startReserve, desiredSteps, b);
           uint32_t waitCmd = 0;
           xTaskNotifyWait(0x00, 0xFFFFFFFF, &waitCmd, pdMS_TO_TICKS(500));

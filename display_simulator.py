@@ -68,6 +68,17 @@ class SchedulingShipsDisplay:
         # Cache de algoritmo por id para mostrar el algoritmo que tenia cada barco al entrar a cola
         self.boat_algorithm_by_id = {}
 
+        # Casilla visual actual por barco (índice 0..channel_cells-1)
+        self.boat_slot_by_id = {}
+
+        # Buffer de movimientos por slot (evita que el barco "salte" al final si llega backlog)
+        self.boat_slot_events_by_id = {}
+        self.boat_slot_last_applied_ts_by_id = {}
+        self.boat_move_period_ms_by_id = {}
+
+        # Largo real de la lista (slots) reportado por logs de boat task: list_len = totalSlots + 1
+        self.list_length = None
+
         # Colas visuales separadas por lado
         self.queue_left = []
         self.queue_right = []
@@ -215,6 +226,11 @@ class SchedulingShipsDisplay:
         self.boat_algorithm_by_id = {}
         self.boat_type_by_id = {}
         self.boat_origin_by_id = {}
+        self.boat_slot_by_id = {}
+        self.boat_slot_events_by_id = {}
+        self.boat_slot_last_applied_ts_by_id = {}
+        self.boat_move_period_ms_by_id = {}
+        self.list_length = None
         self.state['completed_total'] = 0
         self.state['completed_lr'] = 0
         self.state['completed_rl'] = 0
@@ -245,11 +261,15 @@ class SchedulingShipsDisplay:
 
     def process_serial_events(self):
         """Procesa eventos de serial en el hilo de UI"""
-        while True:
+        processed = 0
+        max_events_per_tick = 400
+        while processed < max_events_per_tick:
             try:
                 event = self.serial_queue.get_nowait()
             except Empty:
                 break
+
+            processed += 1
 
             etype = event[0]
             if etype == "log":
@@ -317,14 +337,61 @@ class SchedulingShipsDisplay:
             return None
         value = raw_origin.strip().lower()
         aliases = {
+            'l': 'left',
             'izq': 'left',
             'izquierda': 'left',
             'left': 'left',
+            'r': 'right',
             'der': 'right',
             'derecha': 'right',
             'right': 'right',
         }
         return aliases.get(value, value)
+
+    def _enqueue_slot_event(self, boat_id, slot):
+        """Encola eventos de slot para aplicarlos gradualmente en redraw()."""
+        if boat_id is None:
+            return
+        try:
+            boat_id = int(boat_id)
+        except Exception:
+            return
+
+        q = self.boat_slot_events_by_id.get(boat_id)
+        if q is None:
+            q = deque(maxlen=5000)
+            self.boat_slot_events_by_id[boat_id] = q
+        q.append(int(slot))
+
+    def _apply_slot_events_for_boat(self, boat_id, now_ts):
+        """Consume eventos de slot según perMoveMs para que el movimiento sea visible."""
+        q = self.boat_slot_events_by_id.get(boat_id)
+        if not q:
+            return
+
+        period_ms = self.boat_move_period_ms_by_id.get(boat_id, 50)
+        try:
+            period_s = max(0.001, float(period_ms) / 1000.0)
+        except Exception:
+            period_s = 0.05
+
+        last_ts = self.boat_slot_last_applied_ts_by_id.get(boat_id)
+        if last_ts is None:
+            # Primera actualización: aplicar una inmediatamente.
+            self.boat_slot_by_id[boat_id] = q.popleft()
+            self.boat_slot_last_applied_ts_by_id[boat_id] = now_ts
+            return
+
+        # Aplica como máximo algunos pasos por frame para evitar saltos grandes
+        applied = 0
+        max_apply_per_frame = 6
+        while q and (now_ts - last_ts) >= period_s and applied < max_apply_per_frame:
+            self.boat_slot_by_id[boat_id] = q.popleft()
+            last_ts += period_s
+            applied += 1
+
+        if applied:
+            self.boat_slot_last_applied_ts_by_id[boat_id] = last_ts
 
     def rgb565_to_hex(self, value):
         """Convierte un valor RGB565 a un color hexadecimal."""
@@ -548,6 +615,35 @@ class SchedulingShipsDisplay:
             if any(keyword in line.lower() for keyword in ['starting...', 'boot', 'reboot', 'reset', 'ets jul']):
                 self.clear_display_state()
                 return
+
+            # Logs de movimiento por slots emitidos por ShipScheduler.c
+            if line.startswith("[BOAT TASK #"):
+                id_match = re.search(r'\[BOAT TASK #(?P<id>\d+)\]', line)
+                if id_match:
+                    boat_id = int(id_match.group('id'))
+
+                    # Ej: [BOAT TASK #2] movesCount=99 perMoveMs=40 totalSlots=99 stepSize=1
+                    if "movesCount=" in line and "perMoveMs=" in line and "totalSlots=" in line:
+                        m = re.search(r'movesCount=(?P<moves>\d+)\s+perMoveMs=(?P<per>\d+)\s+totalSlots=(?P<total>\d+)\s+stepSize=(?P<step>\d+)', line)
+                        if m:
+                            total_slots = int(m.group('total'))
+                            self.list_length = total_slots + 1
+                            self.boat_move_period_ms_by_id[boat_id] = int(m.group('per'))
+                            # Inicializa slot de entrada si aún no existe
+                            if boat_id not in self.boat_slot_by_id and self.list_length and self.list_length > 0:
+                                origin = self.boat_origin_by_id.get(boat_id)
+                                if origin == 'right':
+                                    self.boat_slot_by_id[boat_id] = self.list_length - 1
+                                elif origin == 'left':
+                                    self.boat_slot_by_id[boat_id] = 0
+
+                    # Ej: [BOAT TASK #2] moved to slot 98
+                    if "moved to slot" in line:
+                        m = re.search(r'moved to slot\s+(?P<slot>-?\d+)', line)
+                        if m:
+                            self._enqueue_slot_event(boat_id, int(m.group('slot')))
+
+                    return
             
             # Cachea tipo al momento de alta: "Barco agregado: #7 tipo=Pesquera origen=..."
             if "Barco agregado:" in line and "tipo=" in line:
@@ -756,6 +852,7 @@ class SchedulingShipsDisplay:
 
         # Animacion de barcos activos
         now = time.time()
+        draw_items = []
         for crossing in self.crossings:
             if not crossing.get('active'):
                 continue
@@ -773,32 +870,118 @@ class SchedulingShipsDisplay:
 
             progress = max(0.0, min(1.0, elapsed / max(1e-6, crossing['duration_s'])))
 
+            # Movimiento por casillas discretas
+            cells = getattr(self, 'channel_cells', 10) or 10
+            denom = max(1, cells - 1)
+            # Preferir posición desde logs de scheduler si existe
+            bid = crossing.get('boat_id')
+
+            if bid is not None:
+                # Aplica movimientos pendientes sin consumirlos de golpe
+                self._apply_slot_events_for_boat(bid, now)
+
+            if bid is not None and bid in self.boat_slot_by_id:
+                # Usar posición informada por logs de "moved to slot"
+                slot = self.boat_slot_by_id[bid]
+                list_len = getattr(self, 'list_length', None)
+                if list_len and list_len > 0:
+                    # Mapeo por grupos: cada (list_len / cells) slots = una casilla visual
+                    # Ejemplo: list_len=100, cells=10 → cada 10 slots = 1 casilla
+                    step_size = (list_len + cells - 1) // cells if cells > 0 else 1
+                    if step_size <= 0:
+                        step_size = 1
+
+                    # Para RL invertimos el slot para que el barco arranque a la derecha
+                    if crossing.get('boat_origin') == 'right' or crossing.get('direction') == 'RL':
+                        effective = (list_len - 1) - slot
+                    else:
+                        effective = slot
+                    if effective < 0:
+                        effective = 0
+                    cell_index = int(effective) // int(step_size)
+                    if cell_index > denom:
+                        cell_index = denom
+                    effective_for_sort = int(effective)
+                else:
+                    # Fallback: usar progreso temporal
+                    cell_index = int(progress * denom)
+                    if cell_index > denom:
+                        cell_index = denom
+                    effective_for_sort = int(cell_index)
+            else:
+                # Sin logs de slot, usar progreso temporal
+                cell_index = int(progress * denom)
+                if cell_index > denom:
+                    cell_index = denom
+                effective_for_sort = int(cell_index)
+
             x_left = side_w + 4
             x_right = w - side_w - 4
+            pos_ratio = cell_index / float(denom)
             if crossing['boat_origin'] == 'right' or crossing['direction'] == 'RL':
-                x = x_right - (x_right - x_left) * progress
+                x = x_right - (x_right - x_left) * pos_ratio
             else:
-                x = x_left + (x_right - x_left) * progress
+                x = x_left + (x_right - x_left) * pos_ratio
             y = (top + bottom) / 2
-
             fill_color = self.boat_fill_color(crossing.get('boat_type'))
-            self.canvas.create_rectangle(
-                sx(x - (self.boat_width / 2)),
-                sy(y - (self.boat_height / 2)),
-                sx(x + (self.boat_width / 2)),
-                sy(y + (self.boat_height / 2)),
-                fill=fill_color,
-                outline='white',
-                width=1,
-            )
-            self.canvas.create_text(sx(x), sy(y), text=str(crossing['boat_id']), fill='white', font=("Arial", 7, "bold"))
-            if crossing.get('boat_type'):
-                self.canvas.create_text(sx(x), sy(y + 6), text=crossing['boat_type'][:3].upper(), fill='white', font=("Arial", 6, "bold"))
-            if crossing.get('boat_origin'):
-                side_tag = 'L' if crossing['boat_origin'] == 'left' else 'R'
-                self.canvas.create_text(sx(x), sy(y - 7), text=side_tag, fill='white', font=("Arial", 6, "bold"))
-            if crossing.get('boat_algorithm'):
-                self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
+
+            # Agrupar por casilla y dirección para evitar solapamiento visual
+            direction_key = crossing.get('direction') or ('RL' if (crossing.get('boat_origin') == 'right') else 'LR')
+            group_key = (cell_index, direction_key)
+            draw_items.append({
+                'group_key': group_key,
+                'x': x,
+                'y': y,
+                'pos': effective_for_sort,
+                'fill_color': fill_color,
+                'crossing': crossing,
+            })
+
+        # Dibuja grupos con offset horizontal (un solo carril) para que no se solapen.
+        if draw_items:
+            groups = {}
+            for item in draw_items:
+                groups.setdefault(item['group_key'], []).append(item)
+
+            x_min = side_w + 4
+            x_max = w - side_w - 4
+            spacing = self.boat_width + 2
+
+            for _key, items in groups.items():
+                # Ordenar por posición efectiva: el que está más adelante se dibuja primero.
+                # (pos ya viene invertido para RL).
+                items.sort(key=lambda it: (-int(it.get('pos', 0)), int(it['crossing'].get('boat_id', 0))))
+
+                # En un carril: el de atrás se desplaza hacia atrás en X.
+                direction = items[0]['group_key'][1]
+                sign = 1 if direction == 'RL' else -1
+
+                for i, item in enumerate(items):
+                    crossing = item['crossing']
+                    x = item['x'] + (i * spacing * sign)
+                    if x < x_min:
+                        x = x_min
+                    if x > x_max:
+                        x = x_max
+                    y = item['y']
+
+                    self.canvas.create_rectangle(
+                        sx(x - (self.boat_width / 2)),
+                        sy(y - (self.boat_height / 2)),
+                        sx(x + (self.boat_width / 2)),
+                        sy(y + (self.boat_height / 2)),
+                        fill=item['fill_color'],
+                        outline='white',
+                        width=1,
+                    )
+                    self.canvas.create_text(sx(x), sy(y), text=str(crossing['boat_id']), fill='white', font=("Arial", 7, "bold"))
+                    if crossing.get('boat_type'):
+                        self.canvas.create_text(sx(x), sy(y + 6), text=crossing['boat_type'][:3].upper(), fill='white', font=("Arial", 6, "bold"))
+                    if crossing.get('boat_origin'):
+                        side_tag = 'L' if crossing['boat_origin'] == 'left' else 'R'
+                        self.canvas.create_text(sx(x), sy(y - 7), text=side_tag, fill='white', font=("Arial", 6, "bold"))
+                    if crossing.get('boat_algorithm'):
+                        self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
 
         # Información de cola visible
         # Pie con estadísticas

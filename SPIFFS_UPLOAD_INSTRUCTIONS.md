@@ -31,7 +31,7 @@ Esto genera `littlefs.bin` con tamaño de 0x160000 (1.4 MB aprox).
 ```powershell
 python -m esptool --chip esp32c6 --port COM6 write_flash 0x290000 littlefs.bin
 ```
-python -m esptool --chip esp32 --port COM6 write_flash 0x290000 littlefs.bin
+python -m esptool --chip esp32 --port COM6 write-flash 0x290000 littlefs.bin
 ### Opción 3: Usar script Python (si tienes installed las herramientas)
 ```powershell
 python make_littlefs.py
