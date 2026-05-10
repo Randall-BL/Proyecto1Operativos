@@ -29,17 +29,17 @@ sensor threshold 10
 readymax 12
 
 # Algoritmo de scheduling de CPU para elegir siguiente barco
-alg rr
+alg fcfs
 rr 3000
 
 # Step size por tipo: n=normal, p=pesquera, u=patrulla
 step n 1
 step p 2
-step u 100
+step u 3
 
 # Demo definida aqui
 democlear
-demoadd l n 1 1
-demoadd r p 1 1
-demoadd r u 1 1
-demoadd l n 1 1
+demoadd l n 1
+demoadd r p 1
+demoadd r u 1
+demoadd l n 1
