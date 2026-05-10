@@ -54,6 +54,8 @@ typedef struct Boat { // Definicion de la estructura Boat.
   unsigned long remainingMillis; // Tiempo restante estimado. 
   unsigned long deadlineMillis; // Deadline absoluto para EDF. 
   bool cancelled; // Marca de cancelacion para limpieza segura. 
+  uint8_t stepSize; // Cantidad de casillas de la lista que avanza por movimiento.
+  int16_t currentSlot; // Posicion actual en la lista (-1 si fuera del canal)
 } Boat; // Alias del tipo Boat. 
 
 // Cantidad maxima de barcos permitidos en memoria. 
@@ -77,6 +79,8 @@ const char *boatTypeShort(BoatType type); // Etiqueta de un caracter.
 uint16_t boatColor(BoatType type); // Color RGB565 asociado. 
 unsigned long serviceTimeForType(BoatType type); // Tiempo base por tipo. 
 uint8_t defaultPriorityForType(BoatType type); // Prioridad base por tipo. 
+void ship_model_set_step_size(BoatType type, uint8_t stepSize); // Ajusta stepSize por tipo.
+uint8_t ship_model_get_step_size(BoatType type); // Lee stepSize por tipo.
 void resetBoatSequence(void); // Reinicia los contadores. 
 Boat *createBoat(BoatSide origin, BoatType type); // Crea un barco con prioridad base. 
 Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority); // Crea un barco con prioridad explicita. 

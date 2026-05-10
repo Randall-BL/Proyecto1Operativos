@@ -25,6 +25,10 @@ void ship_display_render_if_needed(const ShipScheduler *scheduler); // Dibujo li
 // Renderiza forzadamente sin respetar el limite de refresco (para eventos criticos como emergencias).
 void ship_display_render_forced(const ShipScheduler *scheduler); // Fuerza dibujo inmediato ignorando el limite de refresco.
 
+// Control de acceso a pantalla para hilos de barco.
+void ship_display_acquire(uint32_t waitMs); // Toma el mutex de pantalla (ms) o retorna si timeout.
+void ship_display_release(void); // Libera el mutex de pantalla.
+
 // Funciones de logica (calculo), no renderizacion.
 int16_t ship_display_map_progress(unsigned long elapsed, unsigned long total, int16_t from, int16_t to);
 BoatRenderData ship_display_calculate_active_boat_position(const Boat *boat, unsigned long elapsed, int16_t canalX, int16_t canalW, int16_t canalY, int16_t canalH, int16_t boatSize);

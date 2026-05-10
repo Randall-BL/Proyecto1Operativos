@@ -10,6 +10,19 @@
 // Secuencias globales para generar identificadores y orden de llegada. // Contadores globales. 
 static uint8_t nextBoatId = 1; // Siguiente ID de barco. 
 static unsigned long nextArrivalOrder = 1; // Siguiente orden de llegada. 
+// Step size configurable por tipo (1=NORMAL, 2=PESQUERA, 3=PATRULLA).
+static uint8_t gStepByType[3] = {1, 1, 2};
+
+void ship_model_set_step_size(BoatType type, uint8_t stepSize) {
+  if (type < 0 || type > BOAT_PATRULLA) return;
+  if (stepSize == 0) stepSize = 1;
+  gStepByType[type] = stepSize;
+}
+
+uint8_t ship_model_get_step_size(BoatType type) {
+  if (type < 0 || type > BOAT_PATRULLA) return 1;
+  return gStepByType[type];
+}
 
 void resetBoatSequence(void) { // Reinicia los contadores globales. 
   // Reinicia las secuencias para que las pruebas sean reproducibles. // Comentario de intencion. 
@@ -91,6 +104,8 @@ Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority) {
   boat->priority = priority; // Asigna la prioridad. 
   boat->arrivalOrder = nextArrivalOrder++; // Asigna el orden de llegada. 
   boat->serviceMillis = serviceTimeForType(type); // Asigna el tiempo de servicio. 
+  // Step size por tipo: cuantos saltos de la lista avanza por movimiento.
+  boat->stepSize = ship_model_get_step_size(type);
   boat->startedAt = 0; // Inicializa el tiempo de inicio. 
   boat->enqueuedAt = 0; // Inicializa el tiempo de encolado. 
   boat->state = STATE_WAITING; // Estado inicial en espera. 
@@ -100,6 +115,7 @@ Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority) {
   // El deadline inicial es una heuristica simple para EDF. // Comentario sobre EDF. 
   boat->deadlineMillis = millis() + (boat->serviceMillis * 2UL); // Deadline basado en servicio. 
   boat->cancelled = false; // Marca de cancelacion en falso. 
+  boat->currentSlot = -1; // Fuera del canal hasta que inicie y reserve su entrada.
   return boat; // Retorna el barco creado. 
 } // Fin de createBoatWithPriority. 
 
