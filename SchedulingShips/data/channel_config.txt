@@ -6,11 +6,11 @@ listlen 10
 visual 10
 
 # Modo de control de flujo: tico | fair | sign
-flow tico
-flowlog on
+flow fair
+flowlog off
 
 # Parametro W para equidad (solo aplica en fair)
-w 2
+w 4
 
 # Tiempo de cambio del letrero en ms (solo aplica en modo sign)
 signms 8000
@@ -18,22 +18,18 @@ signms 8000
 # Direccion inicial del letrero: l (izquierda) | r (derecha)
 sign l
 
-# Parametros fisicos del canal
-chanlen 120
-boatspeed 18
-
 # Sensor de proximidad real (ultrasonico)
 # Cambia estos pines segun tu cableado: proxpin <trig> <echo>
 proxpin 22 23
 proxpollms 120
-sensor activate
+sensor desactivate
 sensor threshold 10
 
 # Cantidad maxima de barcos en la cola de listos
 readymax 12
 
 # Algoritmo de scheduling de CPU para elegir siguiente barco
-alg sjf
+alg fcfs
 
 # Step size por tipo: n=normal, p=pesquera, u=patrulla
 step n 1
@@ -43,7 +39,6 @@ step u 2
 # Demo definida aqui
 democlear
 demoadd l n 1 1
-demoadd r p 2 1
-demoadd l u 3 2
-demoadd r n 1 1
-demoadd l p 2 1
+demoadd r p 1 1
+demoadd r p 1 1
+demoadd l n 1 1

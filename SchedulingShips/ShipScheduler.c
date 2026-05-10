@@ -421,10 +421,8 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
             // Espera un poco antes de reintentar
             vTaskDelay(pdMS_TO_TICKS(100));
           }
-          // Dibuja una vez que consiguió la entrada
-          ship_display_acquire(500);
-          ship_display_render(s);
-          ship_display_release();
+          // Dibuja una vez que consiguió la entrada.
+          ship_display_render_forced(s);
         }
       }
       continue; // Repite el ciclo.
@@ -455,7 +453,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         running = false; // Detiene ejecucion. 
         b->allowedToMove = false; // Bloquea movimiento. 
         interrupted = true; // Marca interrupcion. 
-        if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar estado terminado.
+        if (gScheduler) ship_display_render_forced(gScheduler); // Refresca para mostrar estado terminado.
         break; // Sale del while principal para terminar la tarea. 
       } 
       if (cmd == NOTIF_CMD_PAUSE) { // Si pause.
@@ -463,7 +461,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         running = false; // Detiene ejecucion.
         b->allowedToMove = false; // Bloquea movimiento.
         interrupted = true; // Marca interrupcion.
-        if (gScheduler) ship_display_render(gScheduler); // Refresca para mostrar pausa.
+        if (gScheduler) ship_display_render_forced(gScheduler); // Refresca para mostrar pausa.
         continue; // Vuelve al inicio del bucle para esperar NOTIF_CMD_RUN nuevamente.
       } 
 
@@ -492,20 +490,11 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         b->currentSlot = newSlot;
         currentSlot = newSlot;
         moveAccum = 0; // reinicia acumulador
-        // Barco actualiza pantalla (toma mutex propia)
-        ship_display_acquire(500);
-        ship_display_render(s);
-        ship_display_release();
+        // Barco actualiza pantalla; ship_display_render gestiona el mutex internamente.
+        ship_display_render_forced(s);
       } else {
         // No pudo reservar; espera un poco y reintenta más adelante
         vTaskDelay(pdMS_TO_TICKS(50));
-      }
-    } else {
-      // Si no hay movimiento a realizar, solo render limitado por barco
-      if (gScheduler) {
-        ship_display_acquire(200);
-        ship_display_render(gScheduler);
-        ship_display_release();
       }
     }
   } 
@@ -857,26 +846,7 @@ static int ship_scheduler_select_next_index(ShipScheduler *scheduler) { // Selec
 
   if (scheduler->flowMode == FLOW_TICO) { // Tico no restringe el lado.
     FLOW_LOG(scheduler, "[FLOW][TICO] Seleccion libre por algoritmo %s\n", ship_scheduler_get_algorithm_label(scheduler)); // Traza de seleccion tico.
-    if (scheduler->activeCount == 0) {
-      return findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Elige por algoritmo.
-    }
-
-    Boat *bestBoat = NULL; // Mejor candidato seguro.
-    int bestIndex = -1; // Indice del mejor candidato.
-    BoatSide activeSide = scheduler->activeBoats[0] ? scheduler->activeBoats[0]->origin : SIDE_LEFT; // Lado activo.
-
-    for (uint8_t i = 0; i < scheduler->readyCount; i++) { // Recorre cola.
-      Boat *candidate = scheduler->readyQueue[i]; // Candidato.
-      if (!candidate) continue; // Salta nulos.
-      if (candidate->origin != activeSide) continue; // Mantiene misma direccion.
-      if (!ship_scheduler_is_tico_safe(scheduler, candidate)) continue; // Exige seguridad.
-      if (candidate_is_better(scheduler->algorithm, candidate, bestBoat)) { // Aplica politica.
-        bestBoat = candidate;
-        bestIndex = i;
-      }
-    }
-
-    return bestIndex; // Retorna el mejor candidato seguro.
+    return findIndexForAlgo(scheduler->algorithm, scheduler->readyQueue, scheduler->readyCount); // Elige por algoritmo sin bloquear por lado.
   }
 
   if (scheduler->flowMode == FLOW_SIGN) { // Modo letrero.
@@ -1028,8 +998,6 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   if (!scheduler || scheduler->readyCount == 0) return false; // Valida estado. 
   if (scheduler->activeCount >= MAX_BOATS) return false; // Evita overflow de activos.
 
-  if (scheduler->flowMode != FLOW_TICO && scheduler->activeCount > 0) return false; // Solo uno activo fuera de TICO.
-
   // Bloquea despacho si hay emergencia (puertas cerradas).
   if (scheduler->emergencyMode != EMERGENCY_NONE) {
     if (!scheduler->emergencyDispatchBlockedLogged) {
@@ -1051,16 +1019,11 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
     if (!active) continue;
     if (active->origin != b->origin) {
       scheduler->collisionDetections++; // Registra intento de colision.
-      ship_logf("Colision evitada entre sentidos opuestos (#%u y #%u).\n", active->id, b->id); // Reporta evento.
+      //ship_logf("Colision evitada entre sentidos opuestos (#%u y #%u).\n", active->id, b->id); // Reporta evento.
       FLOW_LOG(scheduler, "[FLOW][SAFE] Requeue por seguridad: activo #%u (%s), candidato #%u (%s)\n", active->id, boatSideName(active->origin), b->id, boatSideName(b->origin)); // Traza de seguridad.
       ship_scheduler_requeue_boat(scheduler, b, true); // Reencola el barco para reintento.
       return false; // No inicia para evitar choque.
     }
-  }
-
-  if (scheduler->flowMode == FLOW_FAIRNESS && b->origin == scheduler->fairnessCurrentSide) { // Acumula ventana solo al despachar lado vigente.
-    scheduler->fairnessPassedInWindow++; // Incrementa barcos despachados en ventana W.
-    FLOW_LOG(scheduler, "[FLOW][FAIR] Despachado #%u lado=%s ventana=%u/%u\n", b->id, boatSideName(b->origin), scheduler->fairnessPassedInWindow, ship_scheduler_get_fairness_window(scheduler)); // Traza de despacho.
   }
 
   b->state = STATE_CROSSING; // Cambia estado a cruzando. 
@@ -1082,6 +1045,10 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   ship_scheduler_add_active(scheduler, b); // Agrega a la lista de activos.
   b->allowedToMove = true; // Permite avance al despachar.
   ship_logf("Dispatching -> barco #%u (rem=%lu svc=%lu)\n", b->id, b->remainingMillis, b->serviceMillis);
+  if (scheduler->flowMode == FLOW_FAIRNESS && b->origin == scheduler->fairnessCurrentSide) { // Cuenta solo despachos reales.
+    scheduler->fairnessPassedInWindow++; // Incrementa barcos realmente despachados en ventana W.
+    FLOW_LOG(scheduler, "[FLOW][FAIR] Despachado #%u lado=%s ventana=%u/%u\n", b->id, boatSideName(b->origin), scheduler->fairnessPassedInWindow, ship_scheduler_get_fairness_window(scheduler)); // Traza de despacho.
+  }
   if (b->taskHandle) {
     FLOW_LOG(scheduler, "[DISPATCH DEBUG] Enviando NOTIF_CMD_RUN a barco #%u (taskHandle=%p)\n", b->id, (void*)b->taskHandle);
     xTaskNotify(b->taskHandle, NOTIF_CMD_RUN, eSetValueWithOverwrite); // Arranca la tarea.
@@ -1107,7 +1074,6 @@ static void ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // 
   ship_scheduler_remove_active(scheduler, preempted); // Quita de activos. 
   ship_scheduler_requeue_boat(scheduler, preempted, false); // Reencola al final. 
   ship_scheduler_start_next_boat(scheduler); // Arranca el siguiente. 
-  if (scheduler) ship_display_render_forced(scheduler); // Fuerza refresco tras preempcion para actualizar pantalla.
 } // Fin de ship_scheduler_preempt_active_for_rr. 
 
 static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler, Boat *b) { // Finaliza el barco activo. 
@@ -1153,13 +1119,9 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
     ship_scheduler_preempt_active_for_rr(scheduler); // Aplica preempcion.
   }
 
-  if (scheduler->flowMode == FLOW_TICO) { // Despacha multiples si es posible.
-    bool started = true; // Bandera de despachos.
-    while (started && scheduler->readyCount > 0) { // Mientras haya candidatos.
-      started = ship_scheduler_start_next_boat(scheduler); // Intenta despachar.
-    }
-  } else if (scheduler->activeCount == 0 && scheduler->readyCount > 0) { // Si no hay activo y hay listos.
-    ship_scheduler_start_next_boat(scheduler); // Inicia el siguiente.
+  bool started = true; // Bandera de despachos.
+  while (started && scheduler->readyCount > 0 && scheduler->activeCount < MAX_BOATS) { // Mientras haya candidatos.
+    started = ship_scheduler_start_next_boat(scheduler); // Intenta despachar.
   }
 } // Fin de ship_scheduler_update. 
 
@@ -1369,9 +1331,6 @@ void ship_scheduler_trigger_emergency(ShipScheduler *scheduler) { // Activa emer
     scheduler->hasActiveBoat = false; // Limpia estado activo.
     scheduler->crossingStartedAt = 0; // Reinicia timestamp de cruce.
   }
-
-  // Fuerza actualizacion inmediata de pantalla sin respetar limite de refresco durante emergencia
-  if (scheduler) ship_display_render_forced(scheduler);
 
   scheduler->emergencyMode = EMERGENCY_RECOVERY; // Marca en recuperacion.
   ship_logln("[EMERGENCY] Modo: RECOVERY (esperando apertura de compuertas)"); // Log estado.

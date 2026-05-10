@@ -227,10 +227,10 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
     }
     draw_boat_square(drawX, drawY, activeBoat, true); // Dibuja el barco activo.
 
-    gPrevBoatX = boatData.boatX; // Actualiza X previa.
-    gPrevBoatY = boatData.boatY; // Actualiza Y previa.
-    gPrevBoatW = boatData.boatWidth; // Actualiza ancho previo.
-    gPrevBoatH = boatData.boatHeight; // Actualiza alto previo.
+    gPrevBoatX = drawX; // Actualiza X previa con la posicion realmente dibujada.
+    gPrevBoatY = drawY; // Actualiza Y previa con la posicion realmente dibujada.
+    gPrevBoatW = BOAT_SIZE; // Actualiza ancho previo real.
+    gPrevBoatH = BOAT_SIZE; // Actualiza alto previo real.
 
     ship_display_hw_fill_rect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, CANAL_BG); // Limpia banda de info.
     ship_display_hw_set_text_color(COLOR_WHITE, COLOR_BLACK); // Color de info.
@@ -307,10 +307,7 @@ void ship_display_release(void) {
 // API C: dibujo completo (adquiere mutex internamente).
 void ship_display_render(const ShipScheduler *scheduler) {
   if (gDisplayMutex) { // Intenta tomar mutex con tiempo de espera.
-    if (xSemaphoreTake(gDisplayMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-      ship_logln("[DISPLAY] mutex ocupado, omitiendo render");
-      return;
-    }
+    xSemaphoreTake(gDisplayMutex, portMAX_DELAY); // Espera hasta obtener la pantalla.
   }
 
   unsigned long now = millis(); // Reloj actual.
