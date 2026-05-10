@@ -31,6 +31,8 @@ typedef enum ShipEmergencyMode { // Estados de emergencia del canal.
 typedef struct ShipScheduler { // Estructura con el estado del scheduler. 
   Boat *readyQueue[MAX_BOATS]; // Cola de listos (punteros). 
   uint8_t readyCount; // Cantidad de barcos listos. 
+  Boat *activeBoats[MAX_BOATS]; // Barcos activos simultaneos.
+  uint8_t activeCount; // Cantidad de barcos activos.
   Boat *activeBoat; // Barco activo actual. 
   bool hasActiveBoat; // Flag de barco activo. 
   unsigned long crossingStartedAt; // Marca de inicio del cruce. 
@@ -68,6 +70,9 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint8_t gateRightClosed; // Estado puerta derecha (0=abierta, 1=cerrando, 2=cerrada).
   uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
   bool emergencyDispatchBlockedLogged; // Evita logs repetidos de despacho bloqueado.
+  // Matriz de factores ajustables por par (activo, candidato) para TICO
+  // Índices: [activeType][candidateType] con BoatType en ShipModel.h (3x3)
+  float ticoMarginFactor[3][3];
 } ShipScheduler; // Alias del tipo scheduler. 
 
 void ship_scheduler_begin(ShipScheduler *scheduler); // Inicializa el scheduler. 
@@ -98,7 +103,13 @@ uint16_t ship_scheduler_get_boat_speed(const ShipScheduler *scheduler); // Lee v
 void ship_scheduler_set_flow_logging(ShipScheduler *scheduler, bool enabled); // Activa/desactiva trazas de flujo.
 bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler); // Lee estado de trazas de flujo.
 
+// Ajuste de margen TICO por par de tipos de barco (activeType, candidateType)
+void ship_scheduler_set_tico_margin_factor(ShipScheduler *scheduler, BoatType activeType, BoatType candidateType, float factor);
+float ship_scheduler_get_tico_margin_factor(const ShipScheduler *scheduler, BoatType activeType, BoatType candidateType);
+
 const Boat *ship_scheduler_get_active_boat(const ShipScheduler *scheduler); // Devuelve barco activo. 
+uint8_t ship_scheduler_get_active_count(const ShipScheduler *scheduler); // Devuelve cantidad de barcos activos.
+const Boat *ship_scheduler_get_active_boat_at(const ShipScheduler *scheduler, uint8_t index); // Devuelve barco activo por indice.
 uint8_t ship_scheduler_get_ready_count(const ShipScheduler *scheduler); // Devuelve listos. 
 const Boat *ship_scheduler_get_ready_boat(const ShipScheduler *scheduler, uint8_t index); // Devuelve barco en cola. 
 uint8_t ship_scheduler_get_waiting_count(const ShipScheduler *scheduler, BoatSide side); // Devuelve cantidad por lado. 

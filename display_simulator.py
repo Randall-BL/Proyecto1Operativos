@@ -40,19 +40,13 @@ class SchedulingShipsDisplay:
         self.tft_height = 160
         self.scale = 3
 
-        # Estado de cruce para animación
-        self.crossing = {
-            'boat_id': None,
-            'boat_type': None,
-            'boat_origin': None,
-            'boat_algorithm': None,
-            'direction': 'LR',
-            'start_ts': 0.0,
-            'duration_s': 6.5,
-            'paused': False,
-            'pause_progress': 0.0,
-            'active': False,
-        }
+        # Estado de cruces activos o en espera de inicio
+        self.crossings = []
+
+        # Parametros de dibujo para barcos en el canal
+        self.boat_width = 8
+        self.boat_height = 6
+        self.boat_gap_px = 10
 
         # Tiempos por tipo cargados directamente desde ShipModel.c (sin valores por defecto aquí)
         self.service_time_by_type_ms = {}
@@ -88,6 +82,7 @@ class SchedulingShipsDisplay:
             'completed_rl': 0,
             'completed_total': 0,
             'algorithm': 'FCFS',
+            'flow_mode': 'TICO',
             'gate_status': 'ABIERTO',
             'emergency_mode': 'NONE',
             'sensor_enabled': False,
@@ -314,6 +309,88 @@ class SchedulingShipsDisplay:
         }
         return aliases.get(value, value)
 
+    def rgb565_to_hex(self, value):
+        """Convierte un valor RGB565 a un color hexadecimal."""
+        r = (value >> 11) & 0x1F
+        g = (value >> 5) & 0x3F
+        b = value & 0x1F
+        r8 = int(round(r * 255 / 31))
+        g8 = int(round(g * 255 / 63))
+        b8 = int(round(b * 255 / 31))
+        return f"#{r8:02x}{g8:02x}{b8:02x}"
+
+    def canal_travel_length(self):
+        """Calcula la distancia horizontal de cruce en pixeles logicos."""
+        side_w = 18
+        return max(1, self.tft_width - (2 * side_w) - 8)
+
+    def compute_safe_start(self, now, duration_s, direction):
+        """Calcula el inicio mas temprano para evitar colisiones."""
+        travel_len = self.canal_travel_length()
+        gap_progress = min(0.4, self.boat_gap_px / travel_len)
+        start_time = now
+
+        for crossing in self.crossings:
+            if not crossing.get('active'):
+                continue
+
+            start_a = crossing['start_ts']
+            duration_a = crossing['duration_s']
+
+            if crossing['direction'] != direction:
+                end_a = start_a + duration_a
+                if end_a > start_time:
+                    start_time = end_a
+                continue
+
+            start_gap = start_a + (gap_progress * duration_a)
+            end_gap = (start_a + duration_a) - ((1.0 - gap_progress) * duration_s)
+            required = max(start_gap, end_gap)
+            if required > start_time:
+                start_time = required
+
+        return start_time
+
+    def get_crossing(self, boat_id):
+        """Busca un cruce activo por id de barco."""
+        for crossing in self.crossings:
+            if crossing.get('active') and crossing.get('boat_id') == boat_id:
+                return crossing
+        return None
+
+    def start_crossing(self, boat_id, boat_type, boat_origin, boat_algorithm):
+        """Registra un cruce, aplicando espera si hay riesgo de colision."""
+        now = time.time()
+        duration_s = self.duration_for_boat_type(boat_type)
+        direction = self.origin_to_direction(boat_origin)
+        scheduled_start = now
+        pending = False
+
+        if self.state.get('flow_mode') == 'TICO':
+            scheduled_start = self.compute_safe_start(now, duration_s, direction)
+            pending = scheduled_start > now + 0.001
+
+        crossing = {
+            'boat_id': boat_id,
+            'boat_type': boat_type,
+            'boat_origin': boat_origin,
+            'boat_algorithm': self.normalize_algorithm(boat_algorithm),
+            'direction': direction,
+            'start_ts': scheduled_start,
+            'duration_s': duration_s,
+            'paused': False,
+            'pause_progress': 0.0,
+            'active': True,
+            'pending': pending,
+        }
+
+        self.crossings.append(crossing)
+
+        if pending:
+            self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm, front=True)
+        else:
+            self.remove_boat_from_queues(boat_id)
+
     def load_service_times_from_c(self):
         """Lee SchedulingShips/ShipModel.c y extrae los valores de serviceTimeForType.
         Si no se encuentran, no lanza excepción y deja los valores por defecto.
@@ -435,11 +512,17 @@ class SchedulingShipsDisplay:
     def boat_fill_color(self, boat_type):
         """Devuelve el color de relleno en hex para el tipo de barco."""
         normalized = self.normalize_boat_type(boat_type)
+        color_map = {
+            'normal': self.rgb565_to_hex(0xFFFF),
+            'pesquera': self.rgb565_to_hex(0x07FF),
+            'patrulla': self.rgb565_to_hex(0xF800),
+        }
+        fallback = self.rgb565_to_hex(0xFFE0)
         return {
-            'normal': "#818181",
-            'pesquera': "#3abac4",
-            'patrulla': '#ef476f',
-        }.get(normalized, '#9aa0a6')
+            'normal': color_map['normal'],
+            'pesquera': color_map['pesquera'],
+            'patrulla': color_map['patrulla'],
+        }.get(normalized, fallback)
     
     def parse_line(self, line):
         """Parsea una línea del serial y actualiza estado"""
@@ -463,6 +546,10 @@ class SchedulingShipsDisplay:
                 algo_value = line.split(":", 1)[1].strip().split()[0]
                 self.state['algorithm'] = self.normalize_algorithm(algo_value)
 
+            if line.startswith("Flujo:"):
+                flow_value = line.split(":", 1)[1].strip().split()[0]
+                self.state['flow_mode'] = flow_value.strip().upper()
+
             # Detecta barco activo
             if "Start ->" in line and "barco #" in line:
                 match = re.search(r'barco #(\d+)', line)
@@ -472,17 +559,7 @@ class SchedulingShipsDisplay:
                     boat_origin = self.boat_origin_by_id.get(boat_id)
                     boat_algorithm = self.boat_algorithm_by_id.get(boat_id, {}).get('algorithm', self.state.get('algorithm', 'FCFS'))
                     self.state['active_boat'] = boat_id
-                    self.crossing['boat_id'] = boat_id
-                    self.crossing['boat_type'] = boat_type
-                    self.crossing['boat_origin'] = boat_origin
-                    self.crossing['boat_algorithm'] = self.normalize_algorithm(boat_algorithm)
-                    self.crossing['direction'] = self.origin_to_direction(boat_origin)
-                    self.crossing['start_ts'] = time.time()
-                    self.crossing['duration_s'] = self.duration_for_boat_type(boat_type)
-                    self.crossing['paused'] = False
-                    self.crossing['pause_progress'] = 0.0
-                    self.crossing['active'] = True
-                    self.remove_boat_from_queues(boat_id)
+                    self.start_crossing(boat_id, boat_type, boat_origin, boat_algorithm)
             
             # Detecta finalizacion de barco
             if "Barco finalizado" in line and "#" in line:
@@ -498,13 +575,11 @@ class SchedulingShipsDisplay:
                     if origin_match:
                         self.boat_origin_by_id[boat_id] = self.normalize_boat_origin(origin_match.group(1))
 
+                    crossing = self.get_crossing(boat_id)
+                    if crossing:
+                        crossing['active'] = False
+                        self.crossings = [item for item in self.crossings if item.get('active')]
                     self.state['active_boat'] = None
-                    self.crossing['active'] = False
-                    self.crossing['boat_type'] = None
-                    self.crossing['boat_origin'] = None
-                    self.crossing['boat_algorithm'] = None
-                    self.crossing['paused'] = False
-                    self.crossing['pause_progress'] = 0.0
                     if 'izq' in line or 'Left' in line:
                         self.state['completed_lr'] += 1
                     else:
@@ -513,16 +588,22 @@ class SchedulingShipsDisplay:
 
             if "Pausado barco #" in line or "congelado en el canal" in line:
                 match = re.search(r'#(\d+)', line)
-                if match and self.crossing['boat_id'] == int(match.group(1)):
-                    self.crossing['paused'] = True
-                    elapsed = time.time() - self.crossing['start_ts']
-                    self.crossing['pause_progress'] = max(0.0, min(1.0, elapsed / self.crossing['duration_s']))
+                if match:
+                    boat_id = int(match.group(1))
+                    crossing = self.get_crossing(boat_id)
+                    if crossing:
+                        crossing['paused'] = True
+                        elapsed = time.time() - crossing['start_ts']
+                        crossing['pause_progress'] = max(0.0, min(1.0, elapsed / crossing['duration_s']))
 
             if "Reanudado barco #" in line:
                 match = re.search(r'#(\d+)', line)
-                if match and self.crossing['boat_id'] == int(match.group(1)):
-                    self.crossing['paused'] = False
-                    self.crossing['start_ts'] = time.time() - (self.crossing['pause_progress'] * self.crossing['duration_s'])
+                if match:
+                    boat_id = int(match.group(1))
+                    crossing = self.get_crossing(boat_id)
+                    if crossing:
+                        crossing['paused'] = False
+                        crossing['start_ts'] = time.time() - (crossing['pause_progress'] * crossing['duration_s'])
 
             if "recolocado en cola" in line or "[EMERGENCY]" in line and "recolocado" in line:
                 self.serial_queue.put(("log", f"[SIM DEBUG] Detectado 'recolocado en cola' en línea: {line}"))
@@ -535,15 +616,14 @@ class SchedulingShipsDisplay:
                     boat_algorithm = self.state.get('algorithm', 'FCFS')
                     self.serial_queue.put(("log", f"[SIM DEBUG] Origen={boat_origin}, Tipo={boat_type}, Algo={boat_algorithm}"))
                     self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm)
-                    if self.crossing['boat_id'] == boat_id:
+                    crossing = self.get_crossing(boat_id)
+                    if crossing:
                         self.serial_queue.put(("log", f"[SIM DEBUG] Limpiando estado activo para barco #{boat_id}"))
+                        crossing['active'] = False
+                        self.crossings = [item for item in self.crossings if item.get('active')]
                         self.state['active_boat'] = None
-                        self.crossing['active'] = False
-                        self.crossing['boat_type'] = None
-                        self.crossing['boat_origin'] = None
-                        self.crossing['boat_algorithm'] = None
                     else:
-                        self.serial_queue.put(("log", f"[SIM DEBUG] Barco #{boat_id} no es el activo (activo={self.crossing['boat_id']})"))
+                        self.serial_queue.put(("log", f"[SIM DEBUG] Barco #{boat_id} no es el activo"))
                 else:
                     self.serial_queue.put(("log", f"[SIM DEBUG] No se encontró 'Barco #' en línea: {line}"))
 
@@ -551,12 +631,11 @@ class SchedulingShipsDisplay:
                 match = re.search(r'Barco #(\d+)', line)
                 if match:
                     boat_id = int(match.group(1))
-                    if self.crossing['boat_id'] == boat_id:
+                    crossing = self.get_crossing(boat_id)
+                    if crossing:
+                        crossing['active'] = False
+                        self.crossings = [item for item in self.crossings if item.get('active')]
                         self.state['active_boat'] = None
-                        self.crossing['active'] = False
-                        self.crossing['boat_type'] = None
-                        self.crossing['boat_origin'] = None
-                        self.crossing['boat_algorithm'] = None
 
             # Nota: '[FLOW][SAFE] Requeue' contiene pistas internas del scheduler.
             # La pantalla no debe tomar decisiones de planificacion; se ignoran estas lineas
@@ -653,37 +732,51 @@ class SchedulingShipsDisplay:
         self.canvas.create_text(sx(w - side_w // 2), sy(top + 4), text="DER", fill='yellow', font=("Arial", 7, "bold"))
         self.draw_queue_items(self.queue_right, sx, sy, w - side_w, w, top + 12, bottom)
 
-        # Animación de barco activo
-        if self.crossing['active'] and self.crossing['boat_id'] is not None:
-            now = time.time()
-            if self.crossing['paused']:
-                elapsed = self.crossing['pause_progress'] * self.crossing['duration_s']
-            else:
-                elapsed = now - self.crossing['start_ts']
+        # Animacion de barcos activos
+        now = time.time()
+        for crossing in self.crossings:
+            if not crossing.get('active'):
+                continue
 
-            progress = max(0.0, min(1.0, elapsed / max(1e-6, self.crossing['duration_s'])))
+            if crossing.get('pending'):
+                if now < crossing['start_ts']:
+                    continue
+                crossing['pending'] = False
+                self.remove_boat_from_queues(crossing['boat_id'])
+
+            if crossing.get('paused'):
+                elapsed = crossing['pause_progress'] * crossing['duration_s']
+            else:
+                elapsed = now - crossing['start_ts']
+
+            progress = max(0.0, min(1.0, elapsed / max(1e-6, crossing['duration_s'])))
 
             x_left = side_w + 4
             x_right = w - side_w - 4
-            if self.crossing['boat_origin'] == 'right' or self.crossing['direction'] == 'RL':
+            if crossing['boat_origin'] == 'right' or crossing['direction'] == 'RL':
                 x = x_right - (x_right - x_left) * progress
             else:
                 x = x_left + (x_right - x_left) * progress
             y = (top + bottom) / 2
 
-            self.canvas.create_rectangle(sx(x - 4), sy(y - 3), sx(x + 4), sy(y + 3), fill='red', outline='white', width=1)
-            self.canvas.create_text(sx(x), sy(y), text=str(self.crossing['boat_id']), fill='white', font=("Arial", 7, "bold"))
-            if self.crossing['boat_type']:
-                self.canvas.create_text(sx(x), sy(y + 6), text=self.crossing['boat_type'][:3].upper(), fill='white', font=("Arial", 6, "bold"))
-            if self.crossing['boat_origin']:
-                side_tag = 'L' if self.crossing['boat_origin'] == 'left' else 'R'
+            fill_color = self.boat_fill_color(crossing.get('boat_type'))
+            self.canvas.create_rectangle(
+                sx(x - (self.boat_width / 2)),
+                sy(y - (self.boat_height / 2)),
+                sx(x + (self.boat_width / 2)),
+                sy(y + (self.boat_height / 2)),
+                fill=fill_color,
+                outline='white',
+                width=1,
+            )
+            self.canvas.create_text(sx(x), sy(y), text=str(crossing['boat_id']), fill='white', font=("Arial", 7, "bold"))
+            if crossing.get('boat_type'):
+                self.canvas.create_text(sx(x), sy(y + 6), text=crossing['boat_type'][:3].upper(), fill='white', font=("Arial", 6, "bold"))
+            if crossing.get('boat_origin'):
+                side_tag = 'L' if crossing['boat_origin'] == 'left' else 'R'
                 self.canvas.create_text(sx(x), sy(y - 7), text=side_tag, fill='white', font=("Arial", 6, "bold"))
-            if self.crossing['boat_algorithm']:
-                self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(self.crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
-
-            if progress >= 1.0:
-                # Mantiene el barco visible en el extremo hasta recibir el log real de finalización.
-                progress = 1.0
+            if crossing.get('boat_algorithm'):
+                self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
 
         # Información de cola visible
         # Pie con estadísticas

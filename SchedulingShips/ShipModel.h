@@ -63,7 +63,12 @@ typedef struct Boat { // Definicion de la estructura Boat.
 // Periodo minimo de refresco visual. 
 #define UI_REFRESH_MS 200UL // Periodo de refresco en ms. 
 // Margen adicional para simular el cruce completo. 
-#define CROSSING_MARGIN_MS 250UL // Margen extra en ms. 
+#define CROSSING_MARGIN_MS 250UL // Margen extra en ms.
+//Margen para evitar solapamientos visuales en TICO.
+#define TICO_INITIAL_MARGIN 2000UL // Margen inicial para TICO
+//Margen para evitar choques visuales en TICO.
+#define TICO_SAFETY_MARGIN 0.18f // Margen de seguridad para TICO
+
 
 // Helpers de texto y construccion de barcos. 
 const char *boatTypeName(BoatType type); // Nombre largo del tipo. 

@@ -60,6 +60,13 @@ static void reset_prev_boat_rect_cache(void) {
   gPrevBoatH = 0;
 }
 
+// Calcula elapsed de un barco sin underflow.
+static unsigned long ship_display_boat_elapsed_millis(const Boat *boat) {
+  if (!boat) return 0; // Valida puntero.
+  if (boat->serviceMillis <= boat->remainingMillis) return 0; // Evita underflow.
+  return boat->serviceMillis - boat->remainingMillis; // Retorna elapsed.
+}
+
 // Dibuja el fondo estatico de la interfaz.
 static void draw_static_layout(const char *algoLabel) {
   ship_display_hw_fill_screen(COLOR_BLACK); // Limpia toda la pantalla.
@@ -132,7 +139,50 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
   ship_display_hw_set_cursor(CANAL_X + 6, CANAL_Y + 3); // Posicion del texto.
   ship_display_hw_print_str("Canal"); // Titulo del canal.
 
+  uint8_t activeCount = ship_scheduler_get_active_count(scheduler); // Cantidad de activos.
   const Boat *activeBoat = ship_scheduler_get_active_boat(scheduler); // Barco activo actual.
+
+  if (activeCount > 1) { // Si hay varios activos.
+    ship_display_hw_fill_rect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, CANAL_BG); // Limpia todo el canal.
+    reset_prev_boat_rect_cache(); // Reinicia el cache de la posicion previa.
+    gPrevRenderedBoatId = 0; // Reinicia cache de ID.
+
+    for (uint8_t i = 0; i < activeCount; i++) { // Dibuja cada activo.
+      const Boat *boat = ship_scheduler_get_active_boat_at(scheduler, i); // Barco activo.
+      if (!boat) continue; // Salta nulos.
+      unsigned long elapsed = ship_display_boat_elapsed_millis(boat); // Tiempo transcurrido.
+
+      int16_t travelStart = boat->origin == SIDE_RIGHT ? CANAL_X + CANAL_W - BOAT_SIZE - 2 : CANAL_X + 2; // Inicio segun origen.
+      int16_t travelEnd = boat->origin == SIDE_RIGHT ? CANAL_X + 2 : CANAL_X + CANAL_W - BOAT_SIZE - 2; // Fin segun origen.
+      int16_t boatX = ship_display_map_progress(elapsed, boat->serviceMillis, travelStart, travelEnd); // Posicion X.
+
+      int16_t minX = CANAL_X + 2; // Limite izquierdo.
+      int16_t maxX = CANAL_X + CANAL_W - BOAT_SIZE - 2; // Limite derecho.
+      if (boatX < minX) boatX = minX; // Aplica limite izq.
+      if (boatX > maxX) boatX = maxX; // Aplica limite der.
+
+      int16_t boatY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2); // Y centrado.
+      draw_boat_square(boatX, boatY, boat, true); // Dibuja el barco activo.
+    }
+
+    ship_display_hw_fill_rect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, CANAL_BG); // Limpia banda de info.
+    ship_display_hw_set_text_color(COLOR_WHITE, COLOR_BLACK); // Color de info.
+    ship_display_hw_set_text_wrap(false); // Evita salto de linea.
+    ship_display_hw_set_cursor(CANAL_X + 4, INFO_Y); // Posicion de info.
+    if (activeBoat) { // Muestra datos del primer activo.
+      ship_display_hw_print_str(boatTypeShort(activeBoat->type)); // Tipo corto.
+      ship_display_hw_print_char('#'); // Separador.
+      ship_display_hw_print_uint(activeBoat->id); // ID del barco.
+      ship_display_hw_print_char(' '); // Espacio.
+      ship_display_hw_print_str(boatSideName(activeBoat->origin)); // Lado de origen.
+      ship_display_hw_print_char(' '); // Espacio.
+      ship_display_hw_print_char('+'); // Prefijo para conteo.
+      ship_display_hw_print_uint(activeCount - 1); // Cantidad extra.
+    }
+    ship_display_hw_set_text_wrap(true); // Restaura ajuste de texto.
+    return; // Ya termino.
+  }
+
   unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler); // Tiempo transcurrido.
   BoatRenderData boatData = ship_display_calculate_active_boat_position(activeBoat, elapsed, CANAL_X, CANAL_W, CANAL_Y, CANAL_H, BOAT_SIZE); // Posicion calculada.
 
