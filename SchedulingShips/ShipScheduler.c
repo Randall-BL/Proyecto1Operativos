@@ -24,6 +24,7 @@ static int findIndexForAlgoAndSide(ShipAlgo algo, Boat *readyQueue[], uint8_t re
 static void ship_scheduler_tick_sign(ShipScheduler *scheduler); // Declara tick de letrero.
 static int ship_scheduler_select_next_index(ShipScheduler *scheduler); // Declara selector con flujo.
 static unsigned long ship_scheduler_boat_elapsed_millis(const Boat *boat); // Declara elapsed por barco.
+static unsigned long ship_scheduler_estimate_service_millis(const ShipScheduler *scheduler, const Boat *boat); // Declara estimador de servicio.
 static void ship_scheduler_sync_primary_active(ShipScheduler *scheduler); // Declara sync de activo.
 static void ship_scheduler_add_active(ShipScheduler *scheduler, Boat *boat); // Declara alta de activo.
 static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat); // Declara baja de activo.
@@ -84,6 +85,27 @@ static unsigned long ship_scheduler_boat_elapsed_millis(const Boat *boat) { // C
   return boat->serviceMillis - boat->remainingMillis; // Retorna elapsed.
 } // Fin de ship_scheduler_boat_elapsed_millis.
 
+static unsigned long ship_scheduler_estimate_service_millis(const ShipScheduler *scheduler, const Boat *boat) { // Estima el tiempo de servicio.
+  if (!scheduler || !boat) return 0; // Valida punteros.
+  if (scheduler->channelLengthMeters == 0 || scheduler->boatSpeedMetersPerSec == 0) return 5000UL; // Fallback razonable.
+
+  float fullChannelMs = ((float)scheduler->channelLengthMeters * 1000.0f) / (float)scheduler->boatSpeedMetersPerSec; // Tiempo total del canal.
+  unsigned long baseMs = (unsigned long)(fullChannelMs + 0.5f); // Redondeo al ms.
+  if (baseMs == 0) baseMs = 1; // Evita cero.
+
+  float typeFactor = 1.0f; // Ajuste por tipo.
+  switch (boat->type) { // Selecciona factor.
+    case BOAT_NORMAL: typeFactor = 1.0f; break;
+    case BOAT_PESQUERA: typeFactor = 0.6f; break;
+    case BOAT_PATRULLA: typeFactor = 0.3f; break;
+    default: typeFactor = 1.0f; break;
+  }
+
+  unsigned long estimated = (unsigned long)((float)baseMs * typeFactor); // Aplica factor.
+  if (estimated == 0) estimated = baseMs; // Garantiza valor util.
+  return estimated < 50 ? 50 : estimated; // Impone minimo operativo.
+} // Fin de ship_scheduler_estimate_service_millis.
+
 static void ship_scheduler_sync_primary_active(ShipScheduler *scheduler) { // Sincroniza el activo primario.
   if (!scheduler) return; // Valida scheduler.
   if (scheduler->activeCount > 0) {
@@ -137,8 +159,6 @@ static bool ship_scheduler_is_tico_safe(const ShipScheduler *scheduler, const Bo
       if (at >= 0 && at < 3 && ct >= 0 && ct < 3) pairFactor = scheduler->ticoMarginFactor[at][ct];
     }
     float serviceScale = 1.0f;
-    unsigned long baseSvc = serviceTimeForType(active->type);
-    if (baseSvc > 0) serviceScale = (float)active->serviceMillis / (float)baseSvc;
     float speedScale = 1.0f;
     if (scheduler && scheduler->boatSpeedMetersPerSec > 0) speedScale = 18.0f / (float)scheduler->boatSpeedMetersPerSec; // 18 = default speed
     unsigned long minGapMs = (unsigned long)((float)TICO_INITIAL_MARGIN * pairFactor * serviceScale * speedScale);
@@ -382,6 +402,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
   unsigned long moveAccum = 0;
   int totalSlotsToTravel = 0;
   int movesCount = 0;
+  bool serviceExpired = false; // Indica que el tiempo de servicio ya se agoto pero aun falta llegar visualmente al final.
   ship_logf("[BOAT TASK] Barco #%u iniciada. serviceMillis=%lu\n", b->id, b->serviceMillis); // Depuracion: inicio de tarea.
   while (b->remainingMillis > 0) { // Mientras quede tiempo.
     uint32_t cmd = 0; // Comando recibido.
@@ -399,7 +420,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         if (gScheduler) {
           ShipScheduler *s = gScheduler;
           if (s->listLength > 1) {
-            totalSlotsToTravel = s->listLength - 1;
+              totalSlotsToTravel = s->listLength - 1;
             movesCount = (totalSlotsToTravel + b->stepSize - 1) / b->stepSize;
             if (movesCount <= 0) movesCount = 1;
             perMoveMs = b->serviceMillis / (unsigned long)movesCount;
@@ -437,10 +458,19 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     if (elapsed > 0) { // Solo descuenta si hubo tiempo real.
       if (elapsed >= b->remainingMillis) { // Si ya se agoto el tiempo.
         b->remainingMillis = 0; // Fuerza a cero.
+        serviceExpired = true; // El reloj ya se consumo.
       } else { // Si aun queda tiempo.
         b->remainingMillis -= elapsed; // Reduce por tiempo real transcurrido.
       }
       lastTickAt = now; // Actualiza base temporal.
+    }
+
+    if (serviceExpired && b->currentSlot >= 0 && gScheduler) { // Mantiene vivo el hilo hasta llegar al final visual.
+      ShipScheduler *s = gScheduler; // Toma scheduler actual.
+      int endIndex = (b->origin == SIDE_LEFT) ? (s->listLength - 1) : 0; // Ultima casilla segun origen.
+      if ((b->origin == SIDE_LEFT && b->currentSlot < endIndex) || (b->origin == SIDE_RIGHT && b->currentSlot > endIndex)) {
+        b->remainingMillis = 1; // Evita que el scheduler lo finalize antes de tiempo.
+      }
     }
 
     // acumula para decidir mover de casilla cuando ocurra
@@ -1040,6 +1070,12 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
     }
     // Reserva exitosa: marca currentSlot del barco.
     b->currentSlot = entryIndex;
+  }
+
+  if (b->serviceMillis == 0) { // Calcula tiempos reales antes de notificar al hilo.
+    b->serviceMillis = ship_scheduler_estimate_service_millis(scheduler, b); // Estimacion unica.
+    b->remainingMillis = b->serviceMillis; // Sincroniza restante.
+    b->deadlineMillis = b->startedAt + (b->serviceMillis * 2UL); // Recalcula deadline heuristico.
   }
 
   ship_scheduler_add_active(scheduler, b); // Agrega a la lista de activos.

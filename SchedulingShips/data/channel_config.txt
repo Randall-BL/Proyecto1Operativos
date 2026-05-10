@@ -2,15 +2,15 @@
 # Formato: un comando por linea (igual que por Serial)
 
 # Configuracion de lista y visual
-listlen 10
-visual 10
+listlen 100
+visual 100
 
 # Modo de control de flujo: tico | fair | sign
 flow fair
 flowlog off
 
 # Parametro W para equidad (solo aplica en fair)
-w 4
+w 1
 
 # Tiempo de cambio del letrero en ms (solo aplica en modo sign)
 signms 8000
@@ -29,16 +29,16 @@ sensor threshold 10
 readymax 12
 
 # Algoritmo de scheduling de CPU para elegir siguiente barco
-alg fcfs
+alg rr
 
 # Step size por tipo: n=normal, p=pesquera, u=patrulla
 step n 1
-step p 1
-step u 2
+step p 2
+step u 100
 
 # Demo definida aqui
 democlear
 demoadd l n 1 1
 demoadd r p 1 1
-demoadd r p 1 1
+demoadd r u 1 1
 demoadd l n 1 1

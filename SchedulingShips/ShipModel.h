@@ -77,7 +77,6 @@ const char *boatTypeName(BoatType type); // Nombre largo del tipo.
 const char *boatSideName(BoatSide side); // Nombre corto del lado. 
 const char *boatTypeShort(BoatType type); // Etiqueta de un caracter. 
 uint16_t boatColor(BoatType type); // Color RGB565 asociado. 
-unsigned long serviceTimeForType(BoatType type); // Tiempo base por tipo. 
 uint8_t defaultPriorityForType(BoatType type); // Prioridad base por tipo. 
 void ship_model_set_step_size(BoatType type, uint8_t stepSize); // Ajusta stepSize por tipo.
 uint8_t ship_model_get_step_size(BoatType type); // Lee stepSize por tipo.
