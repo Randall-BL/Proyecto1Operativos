@@ -2,7 +2,7 @@
 # Formato: un comando por linea (igual que por Serial)
 
 # Configuracion de lista y visual
-listlen 100
+listlen 200
 visual 100
 
 # Modo de control de flujo: tico | fair | sign
@@ -10,7 +10,7 @@ flow fair
 flowlog off
 
 # Parametro W para equidad (solo aplica en fair)
-w 2
+w 1
 
 # Tiempo de cambio del letrero en ms (solo aplica en modo sign)
 signms 8000
