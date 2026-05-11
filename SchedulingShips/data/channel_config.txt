@@ -29,7 +29,7 @@ sensor threshold 10
 readymax 12
 
 # Algoritmo de scheduling de CPU para elegir siguiente barco
-alg rr
+alg fcfs
 rr 9000
 
 # Step size por tipo: n=normal, p=pesquera, u=patrulla

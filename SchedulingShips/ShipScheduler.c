@@ -1173,6 +1173,8 @@ static void ship_scheduler_requeue_boat(ShipScheduler *scheduler, Boat *boat, bo
 
 static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecciona y arranca el siguiente barco. 
   if (!scheduler || scheduler->readyCount == 0) return false; // Valida estado. 
+  // Solo RR permite multiples activos simultaneos.
+  if (scheduler->algorithm != ALG_RR && scheduler->activeCount > 0) return false;
   if (scheduler->activeCount >= MAX_BOATS) return false; // Evita overflow de activos.
   // En RR permitimos varios activos ocupando casillas; la rotacion se gestiona
   // por preemption/allowedToMove para que cada activo tenga su quantum.
@@ -1418,9 +1420,9 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
     return;
   }
 
-  bool started = true; // Bandera de despachos.
-  while (started && scheduler->readyCount > 0 && scheduler->activeCount < MAX_BOATS) { // Mientras haya candidatos.
-    started = ship_scheduler_start_next_boat(scheduler); // Intenta despachar.
+  // Algoritmos no RR: ejecucion secuencial (un solo barco activo).
+  if (scheduler->activeCount == 0 && scheduler->readyCount > 0) {
+    ship_scheduler_start_next_boat(scheduler);
   }
 } // Fin de ship_scheduler_update. 
 
