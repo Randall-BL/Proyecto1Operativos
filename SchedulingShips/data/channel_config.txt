@@ -7,10 +7,10 @@ visual 100
 
 # Modo de control de flujo: tico | fair | sign
 flow fair
-flowlog off
+flowlog on
 
 # Parametro W para equidad (solo aplica en fair)
-w 1
+w 2
 
 # Tiempo de cambio del letrero en ms (solo aplica en modo sign)
 signms 8000
@@ -29,13 +29,13 @@ sensor threshold 10
 readymax 12
 
 # Algoritmo de scheduling de CPU para elegir siguiente barco
-alg fcfs
-rr 3000
+alg rr
+rr 9000
 
 # Step size por tipo: n=normal, p=pesquera, u=patrulla
-step n 1
+step n 2
 step p 2
-step u 3
+step u 50
 
 # Demo definida aqui
 democlear
