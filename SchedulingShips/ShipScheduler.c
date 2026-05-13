@@ -139,7 +139,7 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
       b->remainingMillis = 0; // Fuerza a cero. 
     } 
 
-    // Cada paso del barco solicitamos un render (ship_display_render internally rate-limits and is mutex-protected)
+    ship_logf("[PROGRESS] barco #%u rem=%lu svc=%lu\n", b->id, b->remainingMillis, b->serviceMillis);
     if (gScheduler) ship_display_render(gScheduler);
   } 
 

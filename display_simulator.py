@@ -49,6 +49,7 @@ class SchedulingShipsDisplay:
             'paused': False,
             'pause_progress': 0.0,
             'active': False,
+            'known_progress': 0.0,  # progreso real reportado por el firmware via [PROGRESS]
         }
 
         # Tiempos por tipo para la animación visual solamente.
@@ -457,6 +458,7 @@ class SchedulingShipsDisplay:
                     self.crossing['paused'] = False
                     self.crossing['pause_progress'] = 0.0
                     self.crossing['active'] = True
+                    self.crossing['known_progress'] = 0.0
                     self.remove_boat_from_queues(boat_id)
             
             # Detect boat completion
@@ -536,6 +538,16 @@ class SchedulingShipsDisplay:
                 # Intentionally ignored by display-only simulator
                 pass
             
+            # Progreso real del barco reportado por el firmware cada ~200ms
+            if "[PROGRESS] barco #" in line:
+                match = re.search(r'barco #(\d+) rem=(\d+) svc=(\d+)', line)
+                if match:
+                    boat_id = int(match.group(1))
+                    rem = int(match.group(2))
+                    svc = int(match.group(3))
+                    if self.crossing.get('boat_id') == boat_id and svc > 0:
+                        self.crossing['known_progress'] = max(0.0, min(1.0, 1.0 - (rem / svc)))
+
             # Detect ready count
             if "Ready count:" in line:
                 match = re.search(r'Ready count: (\d+)', line)
@@ -624,11 +636,9 @@ class SchedulingShipsDisplay:
         self.canvas.create_text(sx(w - side_w // 2), sy(top + 4), text="DER", fill='yellow', font=("Arial", 7, "bold"))
         self.draw_queue_items(self.queue_right, sx, sy, w - side_w, w, top + 12, bottom)
 
-        # Animación de barco activo
+        # Animación de barco activo — posición dictada por [PROGRESS] del firmware (saltos ~200ms)
         if self.crossing['active'] and self.crossing['boat_id'] is not None:
-            now = time.time()
-            elapsed = self.crossing['pause_progress'] * self.crossing['duration_s'] if self.crossing['paused'] else (now - self.crossing['start_ts'])
-            progress = max(0.0, min(1.0, elapsed / self.crossing['duration_s']))
+            progress = self.crossing.get('known_progress', 0.0)
 
             x_left = side_w + 4
             x_right = w - side_w - 4
@@ -728,6 +738,6 @@ class SchedulingShipsDisplay:
 if __name__ == '__main__':
     root = tk.Tk()
     # Cambiar COM5 al puerto que uses (COM4, COM5, etc. en Windows, /dev/ttyUSB0 en Linux)
-    app = SchedulingShipsDisplay(root, port='COM6', baudrate=115200)
+    app = SchedulingShipsDisplay(root, port='COM7', baudrate=115200)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
