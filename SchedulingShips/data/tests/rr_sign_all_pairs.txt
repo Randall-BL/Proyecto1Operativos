@@ -1,0 +1,57 @@
+Plantilla usada para cada archivo de test:
+
+listlen 200
+visual 100
+flow sign
+flowlog on
+w 2
+signms 8000
+sign r
+proxpin 23 22
+proxpollms 120
+sensor desactivate
+sensor threshold 10
+readymax 40
+alg rr
+rr 9000   # solo necesario si alg es rr
+step n 2
+step p 2
+step u 50
+
+democlear
+demoadd l n 1
+demoadd l n 1
+demoadd l n 1
+demoadd l p 1
+demoadd l n 1
+demoadd l u 1
+demoadd l p 1
+demoadd l n 1
+demoadd l p 1
+demoadd l p 1
+demoadd l p 1
+demoadd l u 1
+demoadd l u 1
+demoadd l n 1
+demoadd l u 1
+demoadd l p 1
+demoadd l u 1
+demoadd l u 1
+demoadd r n 1
+demoadd r n 1
+demoadd r n 1
+demoadd r p 1
+demoadd r n 1
+demoadd r u 1
+demoadd r p 1
+demoadd r n 1
+demoadd r p 1
+demoadd r p 1
+demoadd r p 1
+demoadd r u 1
+demoadd r u 1
+demoadd r n 1
+demoadd r u 1
+demoadd r p 1
+demoadd r u 1
+demoadd r u 1

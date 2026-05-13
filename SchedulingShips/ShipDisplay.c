@@ -3,6 +3,7 @@
 
 #include <freertos/FreeRTOS.h> // Tipos base FreeRTOS.
 #include <freertos/semphr.h> // SemaphoreHandle_t y API de mutex.
+#include <math.h>
 
 // Colores basicos en formato RGB565 (sin depender de encabezados C++).
 static const uint16_t COLOR_BLACK = 0x0000; // Negro.
@@ -58,6 +59,31 @@ static void reset_prev_boat_rect_cache(void) {
   gPrevBoatY = -1;
   gPrevBoatW = 0;
   gPrevBoatH = 0;
+}
+
+// Calcula elapsed de un barco sin underflow.
+static unsigned long ship_display_boat_elapsed_millis(const Boat *boat) {
+  if (!boat) return 0; // Valida puntero.
+  if (boat->serviceMillis <= boat->remainingMillis) return 0; // Evita underflow.
+  return boat->serviceMillis - boat->remainingMillis; // Retorna elapsed.
+}
+
+// Mapea un indice de casilla de la lista a una coordenada X en pixeles dentro del canal.
+static int16_t slot_index_to_x(const ShipScheduler *s, int16_t slotIndex) {
+  if (!s) return CANAL_X + 2;
+  if (s->listLength == 0) return CANAL_X + 2;
+  // Si el barco aun no tiene slot (-1) devolvemos inicio segun lado por seguridad.
+  if (slotIndex < 0) return CANAL_X + 2;
+
+  float ratio = ship_scheduler_get_list_to_visual_ratio(s); // visual per list-slot
+  int visualIndex = (int)roundf(slotIndex * ratio);
+  int visualLen = s->visualChannelLength > 0 ? s->visualChannelLength : s->listLength;
+  int availPixels = CANAL_W - BOAT_SIZE - 4; // espacio util
+  if (visualLen <= 1) return CANAL_X + 2;
+  if (visualIndex < 0) visualIndex = 0;
+  if (visualIndex > visualLen - 1) visualIndex = visualLen - 1;
+  int16_t x = CANAL_X + 2 + (visualIndex * availPixels) / (visualLen - 1);
+  return x;
 }
 
 // Dibuja el fondo estatico de la interfaz.
@@ -132,11 +158,74 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
   ship_display_hw_set_cursor(CANAL_X + 6, CANAL_Y + 3); // Posicion del texto.
   ship_display_hw_print_str("Canal"); // Titulo del canal.
 
+  uint8_t activeCount = ship_scheduler_get_active_count(scheduler); // Cantidad de activos.
   const Boat *activeBoat = ship_scheduler_get_active_boat(scheduler); // Barco activo actual.
+
+  if (activeCount > 1) { // Si hay varios activos.
+    ship_display_hw_fill_rect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, CANAL_BG); // Limpia todo el canal.
+    reset_prev_boat_rect_cache(); // Reinicia el cache de la posicion previa.
+    gPrevRenderedBoatId = 0; // Reinicia cache de ID.
+
+    for (uint8_t i = 0; i < activeCount; i++) { // Dibuja cada activo.
+      const Boat *boat = ship_scheduler_get_active_boat_at(scheduler, i); // Barco activo.
+      if (!boat) continue; // Salta nulos.
+      if (boat->emergencyParked) continue; // No dibuja barcos retirados temporalmente del canal.
+      // Preferimos posicion por casilla si el barco indica currentSlot
+      int16_t boatX;
+      if (boat->currentSlot >= 0 && scheduler->listLength > 0) {
+        boatX = slot_index_to_x(scheduler, boat->currentSlot);
+      } else {
+        unsigned long elapsed = ship_display_boat_elapsed_millis(boat);
+        int16_t travelStart = boat->origin == SIDE_RIGHT ? CANAL_X + CANAL_W - BOAT_SIZE - 2 : CANAL_X + 2; // Inicio segun origen.
+        int16_t travelEnd = boat->origin == SIDE_RIGHT ? CANAL_X + 2 : CANAL_X + CANAL_W - BOAT_SIZE - 2; // Fin segun origen.
+        boatX = ship_display_map_progress(elapsed, boat->serviceMillis, travelStart, travelEnd);
+        int16_t minX = CANAL_X + 2; // Limite izquierdo.
+        int16_t maxX = CANAL_X + CANAL_W - BOAT_SIZE - 2; // Limite derecho.
+        if (boatX < minX) boatX = minX; // Aplica limite izq.
+        if (boatX > maxX) boatX = maxX; // Aplica limite der.
+      }
+      int16_t boatY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2); // Y centrado.
+      draw_boat_square(boatX, boatY, boat, true); // Dibuja el barco activo.
+    }
+
+    ship_display_hw_fill_rect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, CANAL_BG); // Limpia banda de info.
+    ship_display_hw_set_text_color(COLOR_WHITE, COLOR_BLACK); // Color de info.
+    ship_display_hw_set_text_wrap(false); // Evita salto de linea.
+    ship_display_hw_set_cursor(CANAL_X + 4, INFO_Y); // Posicion de info.
+    while (activeBoat && activeBoat->emergencyParked) { // Omitir barcos retirados por emergencia.
+      activeBoat = NULL;
+      for (uint8_t i = 0; i < activeCount; i++) {
+        const Boat *candidate = ship_scheduler_get_active_boat_at(scheduler, i);
+        if (candidate && !candidate->emergencyParked) {
+          activeBoat = candidate;
+          break;
+        }
+      }
+    }
+    if (activeBoat) { // Muestra datos del primer activo visible.
+      ship_display_hw_print_str(boatTypeShort(activeBoat->type)); // Tipo corto.
+      ship_display_hw_print_char('#'); // Separador.
+      ship_display_hw_print_uint(activeBoat->id); // ID del barco.
+      ship_display_hw_print_char(' '); // Espacio.
+      ship_display_hw_print_str(boatSideName(activeBoat->origin)); // Lado de origen.
+      ship_display_hw_print_char(' '); // Espacio.
+      ship_display_hw_print_char('+'); // Prefijo para conteo.
+      ship_display_hw_print_uint(activeCount - 1); // Cantidad extra.
+    }
+    ship_display_hw_set_text_wrap(true); // Restaura ajuste de texto.
+    return; // Ya termino.
+  }
+
   unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler); // Tiempo transcurrido.
   BoatRenderData boatData = ship_display_calculate_active_boat_position(activeBoat, elapsed, CANAL_X, CANAL_W, CANAL_Y, CANAL_H, BOAT_SIZE); // Posicion calculada.
 
   if (activeBoat) { // Si hay barco activo.
+    if (activeBoat->emergencyParked) { // Si esta retirado temporalmente del canal.
+      ship_display_hw_fill_rect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, CANAL_BG); // Limpia el canal.
+      reset_prev_boat_rect_cache(); // Reinicia cache de posicion.
+      ship_display_hw_fill_rect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, CANAL_BG); // Limpia info.
+      return; // No dibuja barcos estacionados por emergencia.
+    }
     unsigned long remaining = activeBoat->remainingMillis; // Tiempo restante mostrado en la banda de info.
 
     if (boatData.isNewBoat) { // Si cambia el barco activo.
@@ -146,12 +235,19 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
       ship_display_hw_fill_rect(gPrevBoatX, gPrevBoatY, gPrevBoatW, gPrevBoatH, CANAL_BG); // Limpia la posicion anterior.
     }
 
-    draw_boat_square(boatData.boatX, boatData.boatY, activeBoat, true); // Dibuja el barco activo.
+    // Si el barco tiene currentSlot, dibujamos en la casilla; en caso contrario usamos el cálculo por tiempo.
+    int16_t drawX = boatData.boatX;
+    int16_t drawY = boatData.boatY;
+    if (activeBoat->currentSlot >= 0 && scheduler->listLength > 0) {
+      drawX = slot_index_to_x(scheduler, activeBoat->currentSlot);
+      drawY = CANAL_Y + (CANAL_H / 2) - (BOAT_SIZE / 2);
+    }
+    draw_boat_square(drawX, drawY, activeBoat, true); // Dibuja el barco activo.
 
-    gPrevBoatX = boatData.boatX; // Actualiza X previa.
-    gPrevBoatY = boatData.boatY; // Actualiza Y previa.
-    gPrevBoatW = boatData.boatWidth; // Actualiza ancho previo.
-    gPrevBoatH = boatData.boatHeight; // Actualiza alto previo.
+    gPrevBoatX = drawX; // Actualiza X previa con la posicion realmente dibujada.
+    gPrevBoatY = drawY; // Actualiza Y previa con la posicion realmente dibujada.
+    gPrevBoatW = BOAT_SIZE; // Actualiza ancho previo real.
+    gPrevBoatH = BOAT_SIZE; // Actualiza alto previo real.
 
     ship_display_hw_fill_rect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, CANAL_BG); // Limpia banda de info.
     ship_display_hw_set_text_color(COLOR_WHITE, COLOR_BLACK); // Color de info.
@@ -214,13 +310,21 @@ void ship_display_begin(void) {
   gLastUiRefresh = 0; // Fuerza primer redibujo.
 }
 
+void ship_display_acquire(uint32_t waitMs) {
+  if (!gDisplayMutex) return;
+  TickType_t ticks = pdMS_TO_TICKS(waitMs);
+  xSemaphoreTake(gDisplayMutex, ticks);
+}
+
+void ship_display_release(void) {
+  if (!gDisplayMutex) return;
+  xSemaphoreGive(gDisplayMutex);
+}
+
 // API C: dibujo completo (adquiere mutex internamente).
 void ship_display_render(const ShipScheduler *scheduler) {
   if (gDisplayMutex) { // Intenta tomar mutex con tiempo de espera.
-    if (xSemaphoreTake(gDisplayMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-      ship_logln("[DISPLAY] mutex ocupado, omitiendo render");
-      return;
-    }
+    xSemaphoreTake(gDisplayMutex, portMAX_DELAY); // Espera hasta obtener la pantalla.
   }
 
   unsigned long now = millis(); // Reloj actual.

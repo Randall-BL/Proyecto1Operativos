@@ -54,24 +54,34 @@ typedef struct Boat { // Definicion de la estructura Boat.
   unsigned long remainingMillis; // Tiempo restante estimado. 
   unsigned long deadlineMillis; // Deadline absoluto para EDF. 
   bool cancelled; // Marca de cancelacion para limpieza segura. 
+  uint8_t stepSize; // Cantidad de casillas de la lista que avanza por movimiento.
+  int16_t currentSlot; // Posicion actual en la lista (-1 si fuera del canal)
+  int16_t emergencySavedSlot; // Casilla guardada durante una emergencia (-1 si no aplica).
+  bool emergencyParked; // Indica que el barco fue retirado temporalmente del canal.
 } Boat; // Alias del tipo Boat. 
 
 // Cantidad maxima de barcos permitidos en memoria. 
-#define MAX_BOATS 16 // Limite superior de barcos simultaneos. 
+#define MAX_BOATS 40 // Limite superior de barcos simultaneos y del manifiesto demo. 
 // Cantidad de barcos visibles por lado en la pantalla. 
 #define VISIBLE_QUEUE 6 // Maximo visible por lado. 
 // Periodo minimo de refresco visual. 
 #define UI_REFRESH_MS 200UL // Periodo de refresco en ms. 
 // Margen adicional para simular el cruce completo. 
-#define CROSSING_MARGIN_MS 250UL // Margen extra en ms. 
+#define CROSSING_MARGIN_MS 250UL // Margen extra en ms.
+//Margen para evitar solapamientos visuales en TICO.
+#define TICO_INITIAL_MARGIN 2000UL // Margen inicial para TICO
+//Margen para evitar choques visuales en TICO.
+#define TICO_SAFETY_MARGIN 0.18f // Margen de seguridad para TICO
+
 
 // Helpers de texto y construccion de barcos. 
 const char *boatTypeName(BoatType type); // Nombre largo del tipo. 
 const char *boatSideName(BoatSide side); // Nombre corto del lado. 
 const char *boatTypeShort(BoatType type); // Etiqueta de un caracter. 
 uint16_t boatColor(BoatType type); // Color RGB565 asociado. 
-unsigned long serviceTimeForType(BoatType type); // Tiempo base por tipo. 
 uint8_t defaultPriorityForType(BoatType type); // Prioridad base por tipo. 
+void ship_model_set_step_size(BoatType type, uint8_t stepSize); // Ajusta stepSize por tipo.
+uint8_t ship_model_get_step_size(BoatType type); // Lee stepSize por tipo.
 void resetBoatSequence(void); // Reinicia los contadores. 
 Boat *createBoat(BoatSide origin, BoatType type); // Crea un barco con prioridad base. 
 Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority); // Crea un barco con prioridad explicita. 

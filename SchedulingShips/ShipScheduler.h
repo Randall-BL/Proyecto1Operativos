@@ -31,6 +31,8 @@ typedef enum ShipEmergencyMode { // Estados de emergencia del canal.
 typedef struct ShipScheduler { // Estructura con el estado del scheduler. 
   Boat *readyQueue[MAX_BOATS]; // Cola de listos (punteros). 
   uint8_t readyCount; // Cantidad de barcos listos. 
+  Boat *activeBoats[MAX_BOATS]; // Barcos activos simultaneos.
+  uint8_t activeCount; // Cantidad de barcos activos.
   Boat *activeBoat; // Barco activo actual. 
   bool hasActiveBoat; // Flag de barco activo. 
   unsigned long crossingStartedAt; // Marca de inicio del cruce. 
@@ -55,6 +57,18 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint8_t maxReadyQueueConfigured; // Limite de cola configurable.
   uint16_t channelLengthMeters; // Largo del canal configurado.
   uint16_t boatSpeedMetersPerSec; // Velocidad base del barco.
+  // Nuevo: configuracion de canal como lista y representacion visual
+  uint16_t listLength; // Largo de la lista (num casillas lógicas)
+  uint16_t visualChannelLength; // Largo visual del canal (pixeles/casillas visuales)
+  // Representacion de campos (casillas) del canal
+  uint8_t *slotOwner; // Array dinamico de propietarios de casilla (0 = libre, id = propietario)
+  void *channelSlotsGuard; // Opaque handle a mutex/guardia (SemaphoreHandle_t) para proteger slotOwner
+  // Configuracion del manifiesto demo (definido por config).
+  uint8_t demoCount; // Cantidad de entradas en el demo.
+  BoatSide demoSide[MAX_BOATS]; // Lado por entrada.
+  BoatType demoType[MAX_BOATS]; // Tipo por entrada.
+  uint8_t demoPrio[MAX_BOATS]; // Prioridad por entrada.
+  uint8_t demoStep[MAX_BOATS]; // Step size por entrada (0 = usar default por tipo).
   uint16_t collisionDetections; // Contador de colisiones detectadas.
   bool flowLoggingEnabled; // Habilita trazas de decisiones de flujo.
   // Sensor de proximidad e interrupciones
@@ -68,12 +82,17 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint8_t gateRightClosed; // Estado puerta derecha (0=abierta, 1=cerrando, 2=cerrada).
   uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
   bool emergencyDispatchBlockedLogged; // Evita logs repetidos de despacho bloqueado.
+  unsigned long activeQuantumStartedAt; // Timestamp cuando el activo actual inicio su quantum
+  // Matriz de factores ajustables por par (activo, candidato) para TICO
+  // Índices: [activeType][candidateType] con BoatType en ShipModel.h (3x3)
+  float ticoMarginFactor[3][3];
 } ShipScheduler; // Alias del tipo scheduler. 
 
 void ship_scheduler_begin(ShipScheduler *scheduler); // Inicializa el scheduler. 
 void ship_scheduler_load_demo_manifest(ShipScheduler *scheduler); // Carga manifiesto demo. 
 void ship_scheduler_clear(ShipScheduler *scheduler); // Limpia colas y tareas. 
 void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat); // Encola un barco. 
+void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, unsigned long deadlineMillis); // Encola un barco con deadline absoluto. 
 void ship_scheduler_update(ShipScheduler *scheduler); // Ejecuta un paso de planificacion. 
 void ship_scheduler_set_algorithm(ShipScheduler *scheduler, ShipAlgo algo); // Cambia algoritmo. 
 ShipAlgo ship_scheduler_get_algorithm(const ShipScheduler *scheduler); // Obtiene algoritmo actual. 
@@ -93,12 +112,31 @@ void ship_scheduler_set_max_ready_queue(ShipScheduler *scheduler, uint8_t limit)
 uint8_t ship_scheduler_get_max_ready_queue(const ShipScheduler *scheduler); // Lee cola maxima.
 void ship_scheduler_set_channel_length(ShipScheduler *scheduler, uint16_t meters); // Ajusta largo del canal.
 uint16_t ship_scheduler_get_channel_length(const ShipScheduler *scheduler); // Lee largo del canal.
+// Configuracion de canal como lista/visual
+void ship_scheduler_load_channel_config(ShipScheduler *scheduler, const char *path); // Lee channel_config.txt
+void ship_scheduler_demo_clear(ShipScheduler *scheduler); // Limpia la configuracion de demo.
+bool ship_scheduler_demo_add(ShipScheduler *scheduler, BoatSide side, BoatType type, uint8_t priority, uint8_t stepSize); // Agrega entrada de demo.
+void ship_scheduler_rebuild_slots(ShipScheduler *scheduler); // Realloca slots segun listLength actual.
+void ship_scheduler_set_list_length(ShipScheduler *scheduler, uint16_t listLength); // Ajusta largo de la lista
+uint16_t ship_scheduler_get_list_length(const ShipScheduler *scheduler); // Lee largo de la lista
+void ship_scheduler_set_visual_channel_length(ShipScheduler *scheduler, uint16_t visualLength); // Ajusta largo visual del canal
+uint16_t ship_scheduler_get_visual_channel_length(const ShipScheduler *scheduler); // Lee largo visual del canal
+float ship_scheduler_get_list_to_visual_ratio(const ShipScheduler *scheduler); // Devuelve ratio lista->visual (puede ser <1 o >1)
+// Reservas de casillas (lista): intentar reservar un rango y liberarlo.
+bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, uint8_t steps, Boat *boat);
+void ship_scheduler_release_range(ShipScheduler *scheduler, int startIndex, uint8_t steps, Boat *boat);
 void ship_scheduler_set_boat_speed(ShipScheduler *scheduler, uint16_t metersPerSec); // Ajusta velocidad base.
 uint16_t ship_scheduler_get_boat_speed(const ShipScheduler *scheduler); // Lee velocidad base.
 void ship_scheduler_set_flow_logging(ShipScheduler *scheduler, bool enabled); // Activa/desactiva trazas de flujo.
 bool ship_scheduler_get_flow_logging(const ShipScheduler *scheduler); // Lee estado de trazas de flujo.
 
+// Ajuste de margen TICO por par de tipos de barco (activeType, candidateType)
+void ship_scheduler_set_tico_margin_factor(ShipScheduler *scheduler, BoatType activeType, BoatType candidateType, float factor);
+float ship_scheduler_get_tico_margin_factor(const ShipScheduler *scheduler, BoatType activeType, BoatType candidateType);
+
 const Boat *ship_scheduler_get_active_boat(const ShipScheduler *scheduler); // Devuelve barco activo. 
+uint8_t ship_scheduler_get_active_count(const ShipScheduler *scheduler); // Devuelve cantidad de barcos activos.
+const Boat *ship_scheduler_get_active_boat_at(const ShipScheduler *scheduler, uint8_t index); // Devuelve barco activo por indice.
 uint8_t ship_scheduler_get_ready_count(const ShipScheduler *scheduler); // Devuelve listos. 
 const Boat *ship_scheduler_get_ready_boat(const ShipScheduler *scheduler, uint8_t index); // Devuelve barco en cola. 
 uint8_t ship_scheduler_get_waiting_count(const ShipScheduler *scheduler, BoatSide side); // Devuelve cantidad por lado. 
@@ -139,6 +177,7 @@ extern ShipScheduler *gScheduler; // Puntero global para callbacks de tareas.
 #define NOTIF_CMD_RUN 1UL // Comando RUN por notificacion. 
 #define NOTIF_CMD_PAUSE 2UL // Comando PAUSE por notificacion. 
 #define NOTIF_CMD_TERMINATE 3UL // Comando TERMINATE por notificacion. 
+#define NOTIF_CMD_SLOT_UPDATE 4UL // Notifica cambio en ocupacion de casillas (slot freed/changed)
 
 #ifdef __cplusplus // Cierra el bloque de linkage C. 
 } // Fin de extern "C". 

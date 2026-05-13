@@ -10,6 +10,19 @@
 // Secuencias globales para generar identificadores y orden de llegada. // Contadores globales. 
 static uint8_t nextBoatId = 1; // Siguiente ID de barco. 
 static unsigned long nextArrivalOrder = 1; // Siguiente orden de llegada. 
+// Step size configurable por tipo (1=NORMAL, 2=PESQUERA, 3=PATRULLA).
+static uint8_t gStepByType[3] = {1, 1, 2};
+
+void ship_model_set_step_size(BoatType type, uint8_t stepSize) {
+  if (type < 0 || type > BOAT_PATRULLA) return;
+  if (stepSize == 0) stepSize = 1;
+  gStepByType[type] = stepSize;
+}
+
+uint8_t ship_model_get_step_size(BoatType type) {
+  if (type < 0 || type > BOAT_PATRULLA) return 1;
+  return gStepByType[type];
+}
 
 void resetBoatSequence(void) { // Reinicia los contadores globales. 
   // Reinicia las secuencias para que las pruebas sean reproducibles. // Comentario de intencion. 
@@ -52,16 +65,6 @@ uint16_t boatColor(BoatType type) { // Devuelve color RGB565 por tipo.
   return SHIP_COLOR_YELLOW; // Color por defecto. 
 } // Fin de boatColor. 
 
-unsigned long serviceTimeForType(BoatType type) { // Devuelve el tiempo base por tipo. 
-  // Define el tiempo base de servicio segun el tipo de barco. // Comentario funcional. 
-  switch (type) { // Selecciona segun el tipo. 
-    case BOAT_NORMAL: return 10000; // Tiempo para normal. 
-    case BOAT_PESQUERA: return 5000; // Tiempo para pesquera. 
-    case BOAT_PATRULLA: return 3000; // Tiempo para patrulla. 
-  } // Fin del switch. 
-  return 5000; // Tiempo por defecto. 
-} // Fin de serviceTimeForType. 
-
 uint8_t defaultPriorityForType(BoatType type) { // Devuelve prioridad base por tipo. 
   // Asigna una prioridad inicial coherente con el tipo. // Comentario funcional. 
   switch (type) { // Selecciona segun el tipo. 
@@ -90,16 +93,33 @@ Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority) {
   boat->origin = origin; // Asigna el origen. 
   boat->priority = priority; // Asigna la prioridad. 
   boat->arrivalOrder = nextArrivalOrder++; // Asigna el orden de llegada. 
-  boat->serviceMillis = serviceTimeForType(type); // Asigna el tiempo de servicio. 
+  // El tiempo de servicio real se puede calcular en tiempo de despacho según la
+  // configuracion del canal (largo del canal y velocidad configurada). Inicializamos
+  // a 0 para indicar que debe ser calculado por el scheduler cuando el barco se
+  // ponga en marcha.
+  boat->serviceMillis = 0;
+  // Step size por tipo: cuantos saltos de la lista avanza por movimiento.
+  boat->stepSize = ship_model_get_step_size(type);
   boat->startedAt = 0; // Inicializa el tiempo de inicio. 
   boat->enqueuedAt = 0; // Inicializa el tiempo de encolado. 
   boat->state = STATE_WAITING; // Estado inicial en espera. 
   boat->taskHandle = NULL; // Aun no hay task. 
   boat->allowedToMove = false; // Bandera en falso al iniciar. 
-  boat->remainingMillis = boat->serviceMillis; // Tiempo restante inicial. 
-  // El deadline inicial es una heuristica simple para EDF. // Comentario sobre EDF. 
-  boat->deadlineMillis = millis() + (boat->serviceMillis * 2UL); // Deadline basado en servicio. 
+  // Si el servicio se calcula más tarde dejamos remaining>0 para evitar que la
+  // tarea del barco termine inmediatamente al crearse; el scheduler ajustará
+  // este valor al despachar.
+  if (boat->serviceMillis == 0) {
+    boat->remainingMillis = 1; // placeholder hasta que el scheduler lo actualice
+    boat->deadlineMillis = 0; // el scheduler fijara el deadline real al encolar
+  } else {
+    boat->remainingMillis = boat->serviceMillis; // Tiempo restante inicial.
+    // El deadline inicial es una heuristica simple para EDF.
+    boat->deadlineMillis = millis() + (boat->serviceMillis * 2UL); // Deadline basado en servicio.
+  }
   boat->cancelled = false; // Marca de cancelacion en falso. 
+  boat->currentSlot = -1; // Fuera del canal hasta que inicie y reserve su entrada.
+  boat->emergencySavedSlot = -1; // Aun no ha sido retirado por emergencia.
+  boat->emergencyParked = false; // Aun no esta estacionado por emergencia.
   return boat; // Retorna el barco creado. 
 } // Fin de createBoatWithPriority. 
 
