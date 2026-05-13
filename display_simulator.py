@@ -19,7 +19,7 @@ import os
 class SchedulingShipsDisplay:
     """Interfaz Tkinter que refleja la pantalla embebida y los logs seriales."""
 
-    def __init__(self, root, port='COM6', baudrate=115200):
+    def __init__(self, root, port='COM5', baudrate=115200):
         """Inicializa estado de UI, hilo serial y modelos de vista."""
         self.root = root
         self.root.title("Scheduling Ships - Display + Serial Monitor")
@@ -185,7 +185,8 @@ class SchedulingShipsDisplay:
     def connect_serial(self):
         """Intenta conectar al puerto serial"""
         try:
-            self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=1)
+            # timeout=0 => no bloqueante (evita que una línea incompleta congele el hilo)
+            self.ser = serial.Serial(self.serial_port, self.baudrate, timeout=0, write_timeout=1)
             time.sleep(2)  # Espera a que el ESP32 se reinicie
             msg = f"✓ Conectado a {self.serial_port} @ {self.baudrate} baud"
             self.serial_queue.put(("status", msg, "lightgreen"))
@@ -204,15 +205,29 @@ class SchedulingShipsDisplay:
             return
         
         buffer = deque(maxlen=500)
+        rx_buffer = bytearray()
         
         while self.running:
             try:
-                if self.ser and self.ser.in_waiting:
-                    line = self.ser.readline().decode('utf-8', errors='ignore').strip()
-                    if line:
-                        buffer.append(line)
-                        self.serial_queue.put(("log", line))
-                        self.serial_queue.put(("parse", line))
+                if self.ser:
+                    n = self.ser.in_waiting
+                    if n:
+                        chunk = self.ser.read(n)
+                        if chunk:
+                            rx_buffer.extend(chunk)
+
+                    # Procesa todas las líneas completas disponibles
+                    while True:
+                        nl = rx_buffer.find(b'\n')
+                        if nl == -1:
+                            break
+                        line_bytes = rx_buffer[:nl]
+                        del rx_buffer[:nl + 1]
+                        line = line_bytes.decode('utf-8', errors='ignore').strip('\r').strip()
+                        if line:
+                            buffer.append(line)
+                            self.serial_queue.put(("log", line))
+                            self.serial_queue.put(("parse", line))
                 time.sleep(0.01)
             except Exception as e:
                 self.serial_queue.put(("log", f"Serial error: {e}"))
@@ -364,34 +379,23 @@ class SchedulingShipsDisplay:
         q.append(int(slot))
 
     def _apply_slot_events_for_boat(self, boat_id, now_ts):
-        """Consume eventos de slot según perMoveMs para que el movimiento sea visible."""
+        """Consume eventos de slot.
+
+        Nota: Para mantener sincronía con la LCD (que redibuja por eventos),
+        aplicamos el estado más reciente inmediatamente. Esto evita que el
+        simulador se quede "atrasado" si llega backlog por Serial.
+        """
         q = self.boat_slot_events_by_id.get(boat_id)
         if not q:
             return
 
-        period_ms = self.boat_move_period_ms_by_id.get(boat_id, 50)
-        try:
-            period_s = max(0.001, float(period_ms) / 1000.0)
-        except Exception:
-            period_s = 0.05
-
-        last_ts = self.boat_slot_last_applied_ts_by_id.get(boat_id)
-        if last_ts is None:
-            # Primera actualización: aplicar una inmediatamente.
-            self.boat_slot_by_id[boat_id] = q.popleft()
+        # Consume todo y deja el último slot.
+        last = None
+        while q:
+            last = q.popleft()
+        if last is not None:
+            self.boat_slot_by_id[boat_id] = int(last)
             self.boat_slot_last_applied_ts_by_id[boat_id] = now_ts
-            return
-
-        # Aplica como máximo algunos pasos por frame para evitar saltos grandes
-        applied = 0
-        max_apply_per_frame = 6
-        while q and (now_ts - last_ts) >= period_s and applied < max_apply_per_frame:
-            self.boat_slot_by_id[boat_id] = q.popleft()
-            last_ts += period_s
-            applied += 1
-
-        if applied:
-            self.boat_slot_last_applied_ts_by_id[boat_id] = last_ts
 
     def rgb565_to_hex(self, value):
         """Convierte un valor RGB565 a un color hexadecimal."""
@@ -909,10 +913,11 @@ class SchedulingShipsDisplay:
                         cell_index = denom
                     effective_for_sort = int(cell_index)
             else:
-                # Sin logs de slot, usar progreso temporal
-                cell_index = int(progress * denom)
-                if cell_index > denom:
+                # Sin logs de slot: mantener en la entrada hasta recibir eventos.
+                if crossing.get('boat_origin') == 'right' or crossing.get('direction') == 'RL':
                     cell_index = denom
+                else:
+                    cell_index = 0
                 effective_for_sort = int(cell_index)
 
             x_left = side_w + 4
@@ -1053,6 +1058,6 @@ class SchedulingShipsDisplay:
 if __name__ == '__main__':
     root = tk.Tk()
     # Cambiar COM5 al puerto que uses (COM4, COM5, etc. en Windows, /dev/ttyUSB0 en Linux)
-    app = SchedulingShipsDisplay(root, port='COM6', baudrate=115200)
+    app = SchedulingShipsDisplay(root, port='COM5', baudrate=115200)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
