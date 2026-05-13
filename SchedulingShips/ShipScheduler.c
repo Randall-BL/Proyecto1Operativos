@@ -200,12 +200,28 @@ static bool candidate_is_better(ShipAlgo algo, const Boat *candidate, const Boat
   }
 
   if (algo == ALG_STRN) { // STRN usa tiempo restante.
-    if (candidate->remainingMillis != best->remainingMillis) return candidate->remainingMillis < best->remainingMillis; // Menor restante gana.
+    // Calcula remaining efectivo: si remainingMillis es un placeholder (1) usa servicio estimado
+    unsigned long candRem = 0UL;
+    unsigned long bestRem = 0UL;
+    if (candidate->remainingMillis > 1) candRem = candidate->remainingMillis;
+    else if (candidate->serviceMillis > 0) candRem = candidate->serviceMillis;
+    else candRem = ship_scheduler_estimate_service_millis(gScheduler, candidate);
+
+    if (best->remainingMillis > 1) bestRem = best->remainingMillis;
+    else if (best->serviceMillis > 0) bestRem = best->serviceMillis;
+    else bestRem = ship_scheduler_estimate_service_millis(gScheduler, best);
+
+    if (candRem != bestRem) return candRem < bestRem; // Menor restante gana.
+    // Si empatan en tiempo restante, desempata por mayor stepSize (avanza más por movimiento).
+    if (candidate->stepSize != best->stepSize) return candidate->stepSize > best->stepSize;
     return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
   }
 
   if (algo == ALG_EDF) { // EDF usa deadline.
-    if (candidate->deadlineMillis != best->deadlineMillis) return candidate->deadlineMillis < best->deadlineMillis; // Menor deadline gana.
+    unsigned long now = millis();
+    unsigned long candRem = candidate->deadlineMillis > now ? candidate->deadlineMillis - now : 0UL;
+    unsigned long bestRem = best->deadlineMillis > now ? best->deadlineMillis - now : 0UL;
+    if (candRem != bestRem) return candRem < bestRem; // Menor tiempo restante gana.
     return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
   }
 
@@ -1095,6 +1111,10 @@ void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, 
   boat->cancelled = false; // Limpia cancelacion. 
   if (boat->enqueuedAt == 0) boat->enqueuedAt = millis(); // Marca encolado si aplica. 
   boat->state = STATE_WAITING; // Estado en espera. 
+  // Si es un barco preemptado que se reencola, preserva su remainingMillis; si es nuevo, usa placeholder
+  if (boat->serviceMillis > 0 && boat->remainingMillis == 0) {
+    boat->remainingMillis = 1; // Placeholder para nuevo barco en lista
+  }
   if (deadlineMillis > 0) { // Si el llamado pide un deadline concreto.
     boat->deadlineMillis = deadlineMillis; // Aplica deadline absoluto.
   } else if (boat->deadlineMillis == 0) { // Si no trae deadline explicito.
@@ -1125,9 +1145,22 @@ void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, 
     }
     bool shouldPreempt = false; // Bandera de preempcion. 
     if (scheduler->algorithm == ALG_STRN) { // Si STRN. 
-      if (boat->remainingMillis < scheduler->activeBoat->remainingMillis) shouldPreempt = true; // Compara restante. 
+      // Calcula remaining efectivo del candidato (nuevo barco)
+      unsigned long candRem = 0UL;
+      if (boat->remainingMillis > 1) candRem = boat->remainingMillis;
+      else if (boat->serviceMillis > 0) candRem = boat->serviceMillis;
+      else candRem = ship_scheduler_estimate_service_millis(scheduler, boat);
+      // Calcula remaining efectivo del activo
+      unsigned long activeRem = 0UL;
+      if (scheduler->activeBoat->remainingMillis > 1) activeRem = scheduler->activeBoat->remainingMillis;
+      else if (scheduler->activeBoat->serviceMillis > 0) activeRem = scheduler->activeBoat->serviceMillis;
+      else activeRem = ship_scheduler_estimate_service_millis(scheduler, scheduler->activeBoat);
+      if (candRem < activeRem) shouldPreempt = true; // Compara restante efectivo. 
     } else if (scheduler->algorithm == ALG_EDF) { // Si EDF. 
-      if (boat->deadlineMillis < scheduler->activeBoat->deadlineMillis) shouldPreempt = true; // Compara deadline. 
+      unsigned long now = millis();
+      unsigned long candRem = boat->deadlineMillis > now ? boat->deadlineMillis - now : 0UL;
+      unsigned long activeRem = scheduler->activeBoat->deadlineMillis > now ? scheduler->activeBoat->deadlineMillis - now : 0UL;
+      if (candRem < activeRem) shouldPreempt = true; // Compara tiempo restante a deadline.
     } else if (scheduler->algorithm == ALG_PRIORITY) { // Si prioridad. 
       if (boat->priority > scheduler->activeBoat->priority) shouldPreempt = true; // Compara prioridad. 
     } 
@@ -1270,7 +1303,9 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   if (b->serviceMillis == 0) { // Calcula tiempos reales antes de notificar al hilo.
     b->serviceMillis = ship_scheduler_estimate_service_millis(scheduler, b); // Estimacion unica.
     b->remainingMillis = b->serviceMillis; // Sincroniza restante.
-    b->deadlineMillis = b->startedAt + (b->serviceMillis * 2UL); // Recalcula deadline heuristico.
+    if (b->deadlineMillis == 0) { // Solo fijar deadline heurístico si no hay uno explícito.
+      b->deadlineMillis = b->startedAt + (b->serviceMillis * 2UL); // Recalcula deadline heuristico.
+    }
   }
 
   ship_scheduler_add_active(scheduler, b); // Agrega a la lista de activos.

@@ -254,7 +254,7 @@ class SchedulingShipsDisplay:
             self.log_serial(f"> {cmd}")
             
             # Si es comando "demo", limpiar pantalla
-            if cmd.strip().lower() == 'demo':
+            if cmd.strip().lower() == 'demo' or cmd.strip().lower() == 'clear':
                 self.clear_display_state()
         except Exception as e:
             self.log_serial(f"✗ Error al enviar: {e}")
