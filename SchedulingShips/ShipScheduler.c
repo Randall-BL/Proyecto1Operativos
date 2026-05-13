@@ -33,6 +33,7 @@ static void ship_scheduler_add_active(ShipScheduler *scheduler, Boat *boat); // 
 static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat); // Declara baja de activo.
 static bool ship_scheduler_is_tico_safe(const ShipScheduler *scheduler, const Boat *candidate); // Declara seguridad TICO.
 static void ship_scheduler_destroy_slot_resources(void); // Libera semaforos de casillas.
+static unsigned long ship_scheduler_compute_default_deadline(const ShipScheduler *scheduler, const Boat *boat); // Declara deadline EDF por defecto.
 static bool ship_scheduler_init_slot_resources(uint16_t count); // Crea semaforos de casillas.
 static SemaphoreHandle_t ship_scheduler_get_slot_semaphore(uint16_t slotIndex); // Obtiene semaforo de casilla.
 static bool ship_scheduler_wait_for_slot(ShipScheduler *scheduler, uint16_t slotIndex, Boat *boat); // Espera una casilla libre.
@@ -242,6 +243,12 @@ static unsigned long ship_scheduler_estimate_service_millis(const ShipScheduler 
   if (estimated == 0) estimated = baseMs; // Garantiza valor util.
   return estimated < 50 ? 50 : estimated; // Impone minimo operativo.
 } // Fin de ship_scheduler_estimate_service_millis.
+static unsigned long ship_scheduler_compute_default_deadline(const ShipScheduler *scheduler, const Boat *boat) { // Calcula deadline EDF por defecto.
+  unsigned long now = millis(); // Base temporal actual.
+  unsigned long serviceMs = boat && boat->serviceMillis > 0 ? boat->serviceMillis : ship_scheduler_estimate_service_millis(scheduler, boat); // Servicio real o estimado.
+  if (serviceMs == 0) serviceMs = 50UL; // Evita deadlines nulos.
+  return now + (serviceMs * 2UL); // Margen EDF conservador.
+} // Fin de ship_scheduler_compute_default_deadline.
 
 static void ship_scheduler_sync_primary_active(ShipScheduler *scheduler) { // Sincroniza el activo primario.
   if (!scheduler) return; // Valida scheduler.
@@ -789,6 +796,7 @@ void ship_scheduler_clear(ShipScheduler *scheduler) { // Limpia colas y tareas.
     vSemaphoreDelete((SemaphoreHandle_t)scheduler->channelSlotsGuard);
     scheduler->channelSlotsGuard = NULL;
   }
+  ship_scheduler_rebuild_slots(scheduler); // Restaura recursos de canal para poder agregar barcos otra vez.
 } // Fin de ship_scheduler_clear. 
 
 void ship_scheduler_set_algorithm(ShipScheduler *scheduler, ShipAlgo algo) { // Configura algoritmo. 
@@ -1072,6 +1080,10 @@ static int ship_scheduler_select_next_index(ShipScheduler *scheduler) { // Selec
 } // Fin de ship_scheduler_select_next_index.
 
 void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un barco nuevo. 
+  ship_scheduler_enqueue_with_deadline(scheduler, boat, 0UL); // Usa deadline por defecto.
+} // Fin de ship_scheduler_enqueue.
+
+void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, unsigned long deadlineMillis) { // Encola un barco con deadline explicito. 
   if (!scheduler || !boat) return; // Valida punteros. 
   scheduler->ignoreCompletions = false; // Habilita callbacks. 
   if (scheduler->readyCount >= MAX_BOATS || scheduler->readyCount >= ship_scheduler_get_max_ready_queue(scheduler)) { // Verifica limites. 
@@ -1083,6 +1095,11 @@ void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un
   boat->cancelled = false; // Limpia cancelacion. 
   if (boat->enqueuedAt == 0) boat->enqueuedAt = millis(); // Marca encolado si aplica. 
   boat->state = STATE_WAITING; // Estado en espera. 
+  if (deadlineMillis > 0) { // Si el llamado pide un deadline concreto.
+    boat->deadlineMillis = deadlineMillis; // Aplica deadline absoluto.
+  } else if (boat->deadlineMillis == 0) { // Si no trae deadline explicito.
+    boat->deadlineMillis = ship_scheduler_compute_default_deadline(scheduler, boat); // Calcula uno real para EDF.
+  }
 
   uint8_t insertAt = scheduler->readyCount; // Posicion de insercion. 
   while (insertAt > 0 && scheduler->readyQueue[insertAt - 1]->arrivalOrder > boat->arrivalOrder) { // Mantiene orden por llegada. 
@@ -1096,6 +1113,11 @@ void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un
   ship_logf("Barco agregado: #%u tipo=%s origen=%s\n", boat->id, boatTypeName(boat->type), boatSideName(boat->origin)); // Log detallado de alta. 
 
   xTaskCreate(boatTask, "boat", 4096, boat, 1, &boat->taskHandle); // Crea la tarea del barco. 
+
+  if (scheduler->activeCount == 0) { // Si el scheduler estaba vacio.
+    ship_scheduler_start_next_boat(scheduler); // Arranca inmediatamente el primer barco en cola.
+    return; // Ya no hace falta preempcion.
+  }
 
   if (scheduler->activeCount > 0 && scheduler->activeBoat) { // Si hay activo. 
     if (scheduler->flowMode == FLOW_TICO) { // En TICO no preempta activos.
@@ -1112,6 +1134,10 @@ void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un
 
     if (shouldPreempt) { // Si se debe preemptar. 
       ship_logf("Preemption: barco #%u solicita preemp.\n", boat->id); // Log de preempcion. 
+      if (scheduler->activeBoat && scheduler->activeBoat->currentSlot >= 0 && scheduler->listLength > 0) { // Si el activo ocupa una casilla. 
+        ship_scheduler_release_range(scheduler, scheduler->activeBoat->currentSlot, 1, scheduler->activeBoat); // Libera la casilla ocupada para no bloquear al nuevo barco. 
+        scheduler->activeBoat->currentSlot = -1; // Fuerza reentrada limpia cuando se reanude mas tarde. 
+      } 
       if (scheduler->activeBoat->taskHandle) { // Si hay tarea activa. 
         xTaskNotify(scheduler->activeBoat->taskHandle, NOTIF_CMD_PAUSE, eSetValueWithOverwrite); // Envia pausa. 
       } 
@@ -1121,7 +1147,7 @@ void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat) { // Encola un
       ship_scheduler_start_next_boat(scheduler); // Inicia el siguiente. 
     } 
   } 
-} // Fin de ship_scheduler_enqueue. 
+} // Fin de ship_scheduler_enqueue_with_deadline.
 
 void ship_scheduler_load_demo_manifest(ShipScheduler *scheduler) { // Carga manifiesto de demo. 
   if (!scheduler) return; // Valida puntero. 

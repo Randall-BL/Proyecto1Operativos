@@ -59,7 +59,7 @@ typedef struct Boat { // Definicion de la estructura Boat.
 } Boat; // Alias del tipo Boat. 
 
 // Cantidad maxima de barcos permitidos en memoria. 
-#define MAX_BOATS 16 // Limite superior de barcos simultaneos. 
+#define MAX_BOATS 40 // Limite superior de barcos simultaneos y del manifiesto demo. 
 // Cantidad de barcos visibles por lado en la pantalla. 
 #define VISIBLE_QUEUE 6 // Maximo visible por lado. 
 // Periodo minimo de refresco visual. 

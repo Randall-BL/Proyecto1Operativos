@@ -92,6 +92,7 @@ void ship_scheduler_begin(ShipScheduler *scheduler); // Inicializa el scheduler.
 void ship_scheduler_load_demo_manifest(ShipScheduler *scheduler); // Carga manifiesto demo. 
 void ship_scheduler_clear(ShipScheduler *scheduler); // Limpia colas y tareas. 
 void ship_scheduler_enqueue(ShipScheduler *scheduler, Boat *boat); // Encola un barco. 
+void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, unsigned long deadlineMillis); // Encola un barco con deadline absoluto. 
 void ship_scheduler_update(ShipScheduler *scheduler); // Ejecuta un paso de planificacion. 
 void ship_scheduler_set_algorithm(ShipScheduler *scheduler, ShipAlgo algo); // Cambia algoritmo. 
 ShipAlgo ship_scheduler_get_algorithm(const ShipScheduler *scheduler); // Obtiene algoritmo actual. 

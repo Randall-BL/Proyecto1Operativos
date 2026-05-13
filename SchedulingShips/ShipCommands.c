@@ -36,7 +36,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
   trim_left(&cursor); // Limpia espacios al inicio. 
 
   if (strcmp(cursor, "help") == 0) { // Comando help. 
-    ship_logln("Comandos: demo | clear | add <l|r> <n|p|u> [prio]"); // Lista comandos base. 
+    ship_logln("Comandos: demo | clear | add <l|r> <n|p|u> [prio|deadline_ms]"); // Lista comandos base. 
     ship_logln("          alg <fcfs|sjf|strn|edf|rr|prio> [ms] | rr <ms> | quantum <ms>"); // Lista alg. 
     ship_logln("          flow <tico|fair|sign> | w <n> | sign <l|r> | signms <ms>"); // Lista flujo.
     ship_logln("          flowlog <on|off>"); // Trazas de flujo.
@@ -45,7 +45,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     ship_logln("          emergency <clear>"); // Emergencias.
     ship_logln("          chanlen <m> | boatspeed <mps> | readymax <n>"); // Lista canal.
     ship_logln("          listlen <n> | visual <n> | step <n|p|u> <n>"); // Lista casillas.
-    ship_logln("          democlear | demoadd <l|r> <n|p|u> [prio] [step]"); // Demo.
+    ship_logln("          democlear | demoadd <l|r> <n|p|u> [prio|deadline_ms] [step]"); // Demo.
     ship_logln("          pause | resume | status | test [all|rr|prio|fcfs|sjf|strn|edf|flow]"); // Lista tests. 
     return; // Termina. 
   } 
@@ -416,27 +416,27 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
   if (starts_with(cursor, "add ")) { // Comando add. 
     char *first = strchr(cursor, ' '); // Busca el primer espacio. 
     if (!first) { // Si falta. 
-      ship_logln("Formato: add <l|r> <n|p|u> [prio] [step]"); // Ayuda. 
+      ship_logln("Formato: add <l|r> <n|p|u> [prio|deadline_ms] [step]"); // Ayuda. 
       return; // Termina. 
     } 
     first++; // Avanza al token. 
     trim_left(&first); // Limpia espacios. 
     char *second = strchr(first, ' '); // Busca el segundo espacio. 
     if (!second) { // Si falta. 
-      ship_logln("Formato: add <l|r> <n|p|u> [prio] [step]"); // Ayuda. 
+      ship_logln("Formato: add <l|r> <n|p|u> [prio|deadline_ms] [step]"); // Ayuda. 
       return; // Termina. 
     } 
     *second = '\0'; // Corta el primer token. 
     char *third = second + 1; // Apunta al tercer token. 
     trim_left(&third); // Limpia espacios. 
     char *fourth = strchr(third, ' '); // Busca el cuarto token. 
-    char *prioToken = NULL; // Token de prioridad opcional. 
+    char *valueToken = NULL; // Token de prioridad o deadline opcional. 
     char *stepToken = NULL; // Token de step opcional.
     if (fourth) { // Si hay prioridad. 
       *fourth = '\0'; // Corta el token de tipo. 
-      prioToken = fourth + 1; // Apunta a prioridad. 
-      trim_left(&prioToken); // Limpia prioridad. 
-      char *fifth = strchr(prioToken, ' '); // Busca el quinto token.
+      valueToken = fourth + 1; // Apunta al valor opcional. 
+      trim_left(&valueToken); // Limpia valor. 
+      char *fifth = strchr(valueToken, ' '); // Busca el quinto token.
       if (fifth) {
         *fifth = '\0';
         stepToken = fifth + 1;
@@ -453,13 +453,20 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     } 
 
     Boat *newBoat = NULL;
-    if (prioToken && prioToken[0] != '\0') { // Si hay prioridad. 
-      long prioValue = strtol(prioToken, NULL, 10); // Convierte a entero. 
-      if (prioValue < 1) prioValue = 1; // Limita minimo. 
-      if (prioValue > 9) prioValue = 9; // Limita maximo. 
-      newBoat = createBoatWithPriority(side, type, (uint8_t)prioValue);
-    } else { // Si no hay prioridad. 
-      newBoat = createBoat(side, type);
+    bool useDeadline = ship_scheduler_get_algorithm(scheduler) == ALG_EDF;
+    unsigned long deadlineOffsetMs = 0UL;
+    if (valueToken && valueToken[0] != '\0') { // Si hay valor opcional. 
+      long parsedValue = strtol(valueToken, NULL, 10); // Convierte a entero. 
+      if (parsedValue < 1) parsedValue = 1; // Limita minimo. 
+      if (useDeadline) { // En EDF, el valor es deadline relativo. 
+        deadlineOffsetMs = (unsigned long)parsedValue; // Guarda offset. 
+      } else { // En otros algoritmos, sigue siendo prioridad. 
+        if (parsedValue > 9) parsedValue = 9; // Limita maximo. 
+        newBoat = createBoatWithPriority(side, type, (uint8_t)parsedValue); // Crea con prioridad. 
+      }
+    }
+    if (!newBoat) { // Si no se creó aún. 
+      newBoat = createBoat(side, type); // Crea por defecto. 
     } 
     if (newBoat) {
       if (stepToken && stepToken[0] != '\0') {
@@ -468,7 +475,11 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
         if (stepParsed > 255) stepParsed = 255;
         newBoat->stepSize = (uint8_t)stepParsed;
       }
-      ship_scheduler_enqueue(scheduler, newBoat);
+      if (useDeadline && deadlineOffsetMs > 0) { // Si EDF y deadline explicito. 
+        ship_scheduler_enqueue_with_deadline(scheduler, newBoat, millis() + deadlineOffsetMs); // Encola con deadline absoluto. 
+      } else { // Resto de casos. 
+        ship_scheduler_enqueue(scheduler, newBoat); // Encola normal. 
+      }
     }
     // El detalle del alta (id, tipo y origen) se imprime dentro del scheduler.
     return; // Termina. 

@@ -2,7 +2,7 @@ Plantilla usada para cada archivo de test:
 
 listlen 200
 visual 100
-flow sign
+flow tico
 flowlog on
 w 2
 signms 8000
@@ -12,7 +12,7 @@ proxpollms 120
 sensor desactivate
 sensor threshold 10
 readymax 40
-alg edf
+alg sjf
 step n 2
 step p 2
 step u 50
