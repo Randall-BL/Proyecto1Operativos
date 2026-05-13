@@ -615,9 +615,66 @@ class SchedulingShipsDisplay:
     def parse_line(self, line):
         """Parsea una línea del serial y actualiza estado"""
         try:
+            def _remove_from_channel_and_requeue(boat_id, front=True):
+                """Quita el barco del canal en el simulador y lo devuelve a la cola.
+
+                Se usa para preempciones (algoritmos apropiativos) y otros casos donde
+                el barco deja de estar activo en el canal en la LCD.
+                """
+                if boat_id is None:
+                    return
+                try:
+                    boat_id = int(boat_id)
+                except Exception:
+                    return
+
+                # Detiene animación en canal
+                crossing = self.get_crossing(boat_id)
+                if crossing:
+                    crossing['active'] = False
+                    self.crossings = [item for item in self.crossings if item.get('active')]
+
+                if self.state.get('active_boat') == boat_id:
+                    self.state['active_boat'] = None
+
+                # Limpia estado de slots para evitar que reaparezca en canal por backlog
+                self.boat_slot_by_id.pop(boat_id, None)
+                self.boat_slot_events_by_id.pop(boat_id, None)
+                self.boat_slot_last_applied_ts_by_id.pop(boat_id, None)
+
+                # Devuelve a la cola según origen (como en la LCD)
+                boat_origin = self.boat_origin_by_id.get(boat_id, 'left')
+                boat_type = self.boat_type_by_id.get(boat_id)
+                boat_algorithm = self.boat_algorithm_by_id.get(boat_id, {}).get('algorithm', self.state.get('algorithm', 'FCFS'))
+                self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm, front=front)
+
             # Detecta reinicio/reboot del ESP32
             if any(keyword in line.lower() for keyword in ['starting...', 'boot', 'reboot', 'reset', 'ets jul']):
                 self.clear_display_state()
+                return
+
+            # Preempción (STRN/EDF/PRIO): el firmware reencola al barco activo y lo saca del canal.
+            # El log no incluye el id del preemptado, así que usamos el activo actual.
+            if line.startswith("Preemption:"):
+                preempted_id = self.state.get('active_boat')
+                _remove_from_channel_and_requeue(preempted_id, front=True)
+                return
+
+            # Si el firmware destruye un barco (por ejemplo, cola llena en emergencia),
+            # el simulador debe removerlo del canal para evitar "fantasmas".
+            if "se destruye" in line and "#" in line:
+                m = re.search(r'#(?P<id>\d+)', line)
+                if m:
+                    destroyed_id = int(m.group('id'))
+                    crossing = self.get_crossing(destroyed_id)
+                    if crossing:
+                        crossing['active'] = False
+                        self.crossings = [item for item in self.crossings if item.get('active')]
+                    if self.state.get('active_boat') == destroyed_id:
+                        self.state['active_boat'] = None
+                    self.boat_slot_by_id.pop(destroyed_id, None)
+                    self.boat_slot_events_by_id.pop(destroyed_id, None)
+                    self.boat_slot_last_applied_ts_by_id.pop(destroyed_id, None)
                 return
 
             # Logs de movimiento por slots emitidos por ShipScheduler.c
