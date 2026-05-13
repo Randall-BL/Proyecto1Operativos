@@ -180,6 +180,7 @@ void setup() { // Funcion de inicializacion Arduino.
   Serial.begin(115200); // Configura velocidad del puerto serie. 
   uint32_t startLog = millis(); // Guarda el tiempo de inicio. 
   while (!Serial && (millis() - startLog < 3000)) { // Espera Serial por un maximo. 
+    delay(10); // Evita espera activa; cede CPU.
   } // Fin del bucle de espera. 
 
   Serial.println("Sistema Scheduling Ships iniciado."); // Mensaje de arranque. 
@@ -198,24 +199,43 @@ void setup() { // Funcion de inicializacion Arduino.
 // Bucle de Arduino: procesa comandos, sondea sensor y ejecuta ticks del scheduler.
 void loop() { // Bucle principal Arduino. 
   // En cada ciclo: lee comandos, actualiza scheduler y refresca la interfaz si aplica. 
-  if (Serial.available() > 0) { // Si hay datos en Serial. 
-    String command = Serial.readStringUntil('\n'); // Lee una linea completa. 
-    command.replace("\r", ""); // Elimina retorno de carro. 
-    command.trim(); // Normaliza espacios de extremos.
-    if (command.equalsIgnoreCase("cfgload")) { // Permite recargar archivo de configuracion.
-      load_channel_config_from_spiffs(&shipScheduler); // Recarga parametros desde SPIFFS.
-      ship_display_render_forced(&shipScheduler); // Refresca pantalla con la nueva config.
-    } else if (command.equalsIgnoreCase("demo")) { // Demo siempre sincronizada con archivo.
-      load_channel_config_from_spiffs(&shipScheduler); // Relee config desde SPIFFS.
-      ship_display_render_forced(&shipScheduler); // Refresca UI.
-    } else if (process_runtime_sensor_command(command)) { // Procesa comandos de hardware de sensor.
-      // Comando manejado en tiempo de ejecucion.
-    } else { // Cualquier otro comando.
-      process_serial_command(&shipScheduler, command.c_str()); // Pasa el comando al parser en C.
+  // Parser no-bloqueante: acumulamos bytes hasta '\n'.
+  static char cmdBuf[192];
+  static size_t cmdLen = 0;
+  while (Serial.available() > 0) {
+    char c = (char)Serial.read();
+    if (c == '\r') continue;
+
+    if (c == '\n') {
+      cmdBuf[cmdLen] = '\0';
+      cmdLen = 0;
+
+      String command = String(cmdBuf);
+      command.trim();
+      if (command.length() == 0) continue;
+
+      if (command.equalsIgnoreCase("cfgload")) { // Permite recargar archivo de configuracion.
+        load_channel_config_from_spiffs(&shipScheduler); // Recarga parametros desde SPIFFS.
+        ship_display_render_forced(&shipScheduler); // Refresca pantalla con la nueva config.
+      } else if (command.equalsIgnoreCase("demo")) { // Demo siempre sincronizada con archivo.
+        load_channel_config_from_spiffs(&shipScheduler); // Relee config desde SPIFFS.
+        ship_display_render_forced(&shipScheduler); // Refresca UI.
+      } else if (process_runtime_sensor_command(command)) { // Procesa comandos de hardware de sensor.
+        // Comando manejado en tiempo de ejecucion.
+      } else {
+        process_serial_command(&shipScheduler, command.c_str()); // Parser en C.
+      }
+    } else {
+      if (cmdLen < sizeof(cmdBuf) - 1) {
+        cmdBuf[cmdLen++] = c;
+      } else {
+        // Overflow: descartamos la línea para no corromper el buffer.
+        cmdLen = 0;
+      }
     }
-  } // Fin de lectura de comandos. 
+  }
 
   poll_proximity_sensor_if_needed(&shipScheduler); // Lee sensor real y actualiza distancia/emergencia.
-  ship_scheduler_update(&shipScheduler); // Avanza el scheduler. 
-  delay(10); // Yield corto; cada barco (tarea) se encarga ahora de redibujar la pantalla.
+  ship_scheduler_update(&shipScheduler); // Avanza el scheduler.
+  delay(0); // Cede CPU a otras tareas sin dormir un tiempo fijo.
 } // Fin del loop. 
