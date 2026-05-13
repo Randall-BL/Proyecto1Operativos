@@ -29,6 +29,7 @@ static int ship_scheduler_select_next_index(ShipScheduler *scheduler); // Declar
 static unsigned long ship_scheduler_boat_elapsed_millis(const Boat *boat); // Declara elapsed por barco.
 static unsigned long ship_scheduler_estimate_service_millis(const ShipScheduler *scheduler, const Boat *boat); // Declara estimador de servicio.
 static void ship_scheduler_sync_primary_active(ShipScheduler *scheduler); // Declara sync de activo.
+static void ship_scheduler_sync_rr_permissions(ShipScheduler *scheduler); // Declara sync de permisos RR.
 static void ship_scheduler_add_active(ShipScheduler *scheduler, Boat *boat); // Declara alta de activo.
 static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat); // Declara baja de activo.
 static bool ship_scheduler_is_tico_safe(const ShipScheduler *scheduler, const Boat *candidate); // Declara seguridad TICO.
@@ -276,6 +277,15 @@ static void ship_scheduler_sync_primary_active(ShipScheduler *scheduler) { // Si
     scheduler->hasActiveBoat = false; // Limpia bandera.
   }
 } // Fin de ship_scheduler_sync_primary_active.
+
+static void ship_scheduler_sync_rr_permissions(ShipScheduler *scheduler) { // Sincroniza permisos de RR.
+  if (!scheduler || scheduler->algorithm != ALG_RR) return; // Solo aplica en RR.
+  for (uint8_t i = 0; i < scheduler->activeCount; i++) { // Recorre activos.
+    Boat *active = scheduler->activeBoats[i]; // Toma activo.
+    if (!active) continue; // Salta nulos.
+    active->allowedToMove = (active == scheduler->activeBoat); // Solo el primario avanza.
+  }
+} // Fin de ship_scheduler_sync_rr_permissions.
 
 static void ship_scheduler_add_active(ShipScheduler *scheduler, Boat *boat) { // Agrega barco activo.
   if (!scheduler || !boat) return; // Valida punteros.
@@ -654,6 +664,10 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     // Intentar mover cuando se acumulo suficiente tiempo
     if (running && b->allowedToMove && b->currentSlot >= 0 && moveAccum >= perMoveMs) {
       ShipScheduler *s = gScheduler;
+      if (s && s->algorithm == ALG_RR && s->activeBoat != b) {
+        moveAccum = 0;
+        continue;
+      }
       int16_t slot = b->currentSlot;
       int endIndex = (b->origin == SIDE_LEFT) ? (s->listLength - 1) : 0;
       int remainingSlots = (b->origin == SIDE_LEFT) ? (s->listLength - 1 - slot) : (slot - 0);
@@ -691,7 +705,10 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         b->allowedToMove = false;
         running = false;
         if (gScheduler && gScheduler->algorithm == ALG_RR) {
-          ship_scheduler_pause_active(gScheduler);
+          // Evitar pausar via ship_scheduler_pause_active que puede afectar
+          // al barco equivocado; solicitar preempción RR para rotar y
+          // despachar el siguiente sin congelar todo el flujo.
+          ship_scheduler_preempt_active_for_rr(gScheduler);
         }
       }
     }
@@ -1370,6 +1387,7 @@ static void ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // 
     scheduler->activeBoats[scheduler->activeCount - 1] = first; // Pone el antiguo al final.
     ship_scheduler_sync_primary_active(scheduler); // Actualiza activeBoat.
   }
+  ship_scheduler_sync_rr_permissions(scheduler); // Mantiene un solo barco con permiso real.
 
   // Intenta despachar un barco listo (si hay espacio y se puede reservar entrada).
   bool started = ship_scheduler_start_next_boat(scheduler);
@@ -1411,6 +1429,7 @@ static void ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // 
           scheduler->activeQuantumStartedAt = millis();
         }
       }
+      ship_scheduler_sync_rr_permissions(scheduler); // Refuerza exclusividad del primario.
     }
   }
 } // Fin de ship_scheduler_preempt_active_for_rr. 
@@ -1449,6 +1468,7 @@ static void ship_scheduler_finish_active_boat(ShipScheduler *scheduler, Boat *b)
         scheduler->activeQuantumStartedAt = millis();
       }
     }
+    ship_scheduler_sync_rr_permissions(scheduler); // Evita que otros activos sigan moviendose.
   }
 } // Fin de ship_scheduler_finish_active_boat. 
 

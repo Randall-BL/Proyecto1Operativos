@@ -153,6 +153,7 @@ static void handle_command(ShipScheduler *scheduler, char *command) { // Procesa
     
     if (strcmp(subcommand, "activate") == 0) { // Activa sensor.
       ship_scheduler_set_sensor_enabled(scheduler, true); // Habilita sensor.
+      ship_scheduler_set_proximity_distance(scheduler, ship_scheduler_get_proximity_distance(scheduler)); // Reevalua distancia actual de inmediato.
       ship_logln("[SENSOR] Sensor ACTIVADO"); // Confirma.
     } else if (strcmp(subcommand, "deactivate") == 0) { // Desactiva sensor.
       ship_scheduler_set_sensor_enabled(scheduler, false); // Deshabilita sensor.

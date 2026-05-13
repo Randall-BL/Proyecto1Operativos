@@ -169,6 +169,7 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
     for (uint8_t i = 0; i < activeCount; i++) { // Dibuja cada activo.
       const Boat *boat = ship_scheduler_get_active_boat_at(scheduler, i); // Barco activo.
       if (!boat) continue; // Salta nulos.
+      if (boat->emergencyParked) continue; // No dibuja barcos retirados temporalmente del canal.
       // Preferimos posicion por casilla si el barco indica currentSlot
       int16_t boatX;
       if (boat->currentSlot >= 0 && scheduler->listLength > 0) {
@@ -191,7 +192,17 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
     ship_display_hw_set_text_color(COLOR_WHITE, COLOR_BLACK); // Color de info.
     ship_display_hw_set_text_wrap(false); // Evita salto de linea.
     ship_display_hw_set_cursor(CANAL_X + 4, INFO_Y); // Posicion de info.
-    if (activeBoat) { // Muestra datos del primer activo.
+    while (activeBoat && activeBoat->emergencyParked) { // Omitir barcos retirados por emergencia.
+      activeBoat = NULL;
+      for (uint8_t i = 0; i < activeCount; i++) {
+        const Boat *candidate = ship_scheduler_get_active_boat_at(scheduler, i);
+        if (candidate && !candidate->emergencyParked) {
+          activeBoat = candidate;
+          break;
+        }
+      }
+    }
+    if (activeBoat) { // Muestra datos del primer activo visible.
       ship_display_hw_print_str(boatTypeShort(activeBoat->type)); // Tipo corto.
       ship_display_hw_print_char('#'); // Separador.
       ship_display_hw_print_uint(activeBoat->id); // ID del barco.
@@ -209,6 +220,12 @@ static void draw_active_boat(const ShipScheduler *scheduler) {
   BoatRenderData boatData = ship_display_calculate_active_boat_position(activeBoat, elapsed, CANAL_X, CANAL_W, CANAL_Y, CANAL_H, BOAT_SIZE); // Posicion calculada.
 
   if (activeBoat) { // Si hay barco activo.
+    if (activeBoat->emergencyParked) { // Si esta retirado temporalmente del canal.
+      ship_display_hw_fill_rect(CANAL_X + 1, CANAL_Y + 1, CANAL_W - 2, CANAL_H - 2, CANAL_BG); // Limpia el canal.
+      reset_prev_boat_rect_cache(); // Reinicia cache de posicion.
+      ship_display_hw_fill_rect(CANAL_X + 2, INFO_Y - 1, CANAL_W - 4, INFO_H + 2, CANAL_BG); // Limpia info.
+      return; // No dibuja barcos estacionados por emergencia.
+    }
     unsigned long remaining = activeBoat->remainingMillis; // Tiempo restante mostrado en la banda de info.
 
     if (boatData.isNewBoat) { // Si cambia el barco activo.

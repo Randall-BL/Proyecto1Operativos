@@ -118,6 +118,8 @@ Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority) {
   }
   boat->cancelled = false; // Marca de cancelacion en falso. 
   boat->currentSlot = -1; // Fuera del canal hasta que inicie y reserve su entrada.
+  boat->emergencySavedSlot = -1; // Aun no ha sido retirado por emergencia.
+  boat->emergencyParked = false; // Aun no esta estacionado por emergencia.
   return boat; // Retorna el barco creado. 
 } // Fin de createBoatWithPriority. 
 
