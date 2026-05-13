@@ -110,7 +110,7 @@ Boat *createBoatWithPriority(BoatSide origin, BoatType type, uint8_t priority) {
   // este valor al despachar.
   if (boat->serviceMillis == 0) {
     boat->remainingMillis = 1; // placeholder hasta que el scheduler lo actualice
-    boat->deadlineMillis = millis() + 60000UL; // deadline amplio por defecto
+    boat->deadlineMillis = 0; // el scheduler fijara el deadline real al encolar
   } else {
     boat->remainingMillis = boat->serviceMillis; // Tiempo restante inicial.
     // El deadline inicial es una heuristica simple para EDF.
