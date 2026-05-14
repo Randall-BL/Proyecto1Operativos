@@ -83,6 +83,7 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
   bool emergencyDispatchBlockedLogged; // Evita logs repetidos de despacho bloqueado.
   unsigned long activeQuantumStartedAt; // Timestamp cuando el activo actual inicio su quantum
+  unsigned long activeQuantumAccumulatedMillis; // Quantum acumulado cuando el activo queda pausado o en emergencia.
   // Matriz de factores ajustables por par (activo, candidato) para TICO
   // Índices: [activeType][candidateType] con BoatType en ShipModel.h (3x3)
   float ticoMarginFactor[3][3];
