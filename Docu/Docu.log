@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.3.22)  14 MAY 2026 20:02
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (MiKTeX 25.12) (preloaded format=pdflatex 2026.3.22)  14 MAY 2026 23:55
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -182,24 +182,24 @@ Package babel Info: 'spanish' activates 'spanish' shorthands.
 )
 \openout1 = `Docu.aux'.
 
-LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
-LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
-LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
-LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
-LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
-LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
-LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 16.
-LaTeX Font Info:    ... okay on input line 16.
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for TS1/cmr/m/n on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 14.
+LaTeX Font Info:    ... okay on input line 14.
 
 -- Lines per column: 58 (exact).
-LaTeX Info: Redefining \. on input line 16.
-LaTeX Info: Redefining \% on input line 16.
+LaTeX Info: Redefining \. on input line 14.
+LaTeX Info: Redefining \% on input line 14.
 (C:\Users\YITAN\AppData\Local\Programs\MiKTeX\tex/context/base/mkii\supp-pdf.mkii
 [Loading MPS to PDF converter (version 2006.09.02).]
 \scratchcounter=\count294
@@ -220,59 +220,59 @@ Package epstopdf-base Info: Redefining graphics rule for `.eps' on input line 48
 File: epstopdf-sys.cfg 2021/03/18 v2.0 Configuration of epstopdf for MiKTeX
 ))
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <9> on input line 20.
+(Font)              <9> on input line 18.
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <6> on input line 20.
+(Font)              <6> on input line 18.
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <5> on input line 20.
+(Font)              <5> on input line 18.
 
-Underfull \hbox (badness 1796) in paragraph at lines 28--29
+Underfull \hbox (badness 1796) in paragraph at lines 26--27
 []\T1/ptm/m/n/10 El sis-te-ma mo-de-la un ca-nal con dos co-las (iz-quier-
  []
 
-LaTeX Font Info:    Trying to load font information for T1+pcr on input line 43.
+LaTeX Font Info:    Trying to load font information for T1+pcr on input line 41.
 (C:\Users\YITAN\AppData\Local\Programs\MiKTeX\tex/latex/psnfss\t1pcr.fd
 File: t1pcr.fd 2001/06/04 font definitions for T1/pcr.
 ) [1{C:/Users/YITAN/AppData/Local/MiKTeX/fonts/map/pdftex/pdftex.map}{C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/enc/dvips/base/8r.enc}
 
 
 ]
-Underfull \hbox (badness 3019) in paragraph at lines 71--72
+Underfull \hbox (badness 3019) in paragraph at lines 69--70
 \T1/ptm/m/n/10 Mau-ro Na-va-rro tra-ba-jó so-bre la ló-gi-ca del sche-
  []
 
 
-Underfull \hbox (badness 4132) in paragraph at lines 71--72
+Underfull \hbox (badness 4132) in paragraph at lines 69--70
 \T1/ptm/m/n/10 du-ler, al-go-rit-mos y apo-yo ge-ne-ral de in-te-gra-ción
  []
 
 
-Underfull \hbox (badness 4582) in paragraph at lines 72--73
+Underfull \hbox (badness 4582) in paragraph at lines 70--71
 \T1/ptm/m/n/10 den-cias: al-go-rit-mos apro-pia-ti-vos (STRN/EDF/PRIO)
  []
 
 
-Underfull \hbox (badness 1783) in paragraph at lines 72--73
+Underfull \hbox (badness 1783) in paragraph at lines 70--71
 \T1/ptm/m/n/10 con pre-emp-ción co-rrec-ta, RR con quan-tum, po-lí-ti-
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 97--98
+Underfull \hbox (badness 10000) in paragraph at lines 95--96
 []\T1/ptm/b/n/10 Equipo: \T1/ptm/m/n/10 se mi-dió por in-te-gra-ción es-ta-ble
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 97--98
+Underfull \hbox (badness 10000) in paragraph at lines 95--96
 \T1/ptm/m/n/10 (con-sis-ten-cia TFT--Python), cie-rre pro-gre-si-vo del
  []
 
 
-Underfull \hbox (badness 4556) in paragraph at lines 97--98
+Underfull \hbox (badness 4556) in paragraph at lines 95--96
 \T1/ptm/m/n/10 al-can-ce del To-Do y eje-cu-ción de es-ce-na-rios de
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 97--98
+Underfull \hbox (badness 10000) in paragraph at lines 95--96
 \T1/ptm/m/n/10 prue-ba (\T1/pcr/m/n/10 SchedulingShips/data/tests/ \T1/ptm/m/n/10 y
  []
 
@@ -290,13 +290,13 @@ L3 programming layer <2025-12-24>
 Here is how much of TeX's memory you used:
  4028 strings out of 467871
  69064 string characters out of 5418376
- 499959 words of memory out of 5000000
+ 498888 words of memory out of 5000000
  32889 multiletter control sequences out of 15000+600000
  732449 words of font info for 138 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  57i,6n,65p,773b,365s stack positions out of 10000i,1000n,20000p,200000b,200000s
 <C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/type1/public/amsfonts/cm/cmmi9.pfb><C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/type1/urw/courier/ucrr8a.pfb><C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmb8a.pfb><C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmbi8a.pfb><C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmr8a.pfb><C:/Users/YITAN/AppData/Local/Programs/MiKTeX/fonts/type1/urw/times/utmri8a.pfb>
-Output written on Docu.pdf (3 pages, 94070 bytes).
+Output written on Docu.pdf (3 pages, 93429 bytes).
 PDF statistics:
  43 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)
