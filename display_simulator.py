@@ -875,11 +875,25 @@ class SchedulingShipsDisplay:
                 return
 
             # Preempción (STRN/EDF/PRIO): el firmware reencola al barco activo y lo saca del canal.
-            # El log no incluye el id del preemptado, así que usamos el activo actual.
+            # Formato: "Preemption: barco #X desaloja a #Y" — Y es el preemptado.
             if line.startswith("Preemption:"):
-                preempted_id = self.state.get('active_boat')
-                # El activo conocido es el que debe volver a la cola visual.
+                # Extraer el id del barco desalojado directamente del log.
+                m = re.search(r'desaloja a #(\d+)', line)
+                if m:
+                    preempted_id = int(m.group(1))
+                else:
+                    # Fallback por si el formato varía (p.ej. "Preemption: barco #0 desaloja a #N").
+                    preempted_id = self.state.get('active_boat')
                 _remove_from_channel_and_requeue(preempted_id, front=True)
+                return
+
+            # Preempción periódica (FIX #6 STRN/EDF): log emitido por ship_scheduler_update
+            # cuando el activo queda superado por un candidato en cola.
+            # Formato: "[PREEMPT PERIODIC] Desalojando activo #N por candidato mas urgente en cola"
+            if "[PREEMPT PERIODIC] Desalojando activo #" in line:
+                m = re.search(r'activo #(\d+)', line)
+                if m:
+                    _remove_from_channel_and_requeue(int(m.group(1)), front=False)
                 return
 
             # Interrupción por emergencia: el firmware congela el barco y lo retira del canal.
