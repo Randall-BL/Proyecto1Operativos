@@ -142,9 +142,18 @@ static void load_channel_config_from_spiffs(ShipScheduler *scheduler) { // Carga
     return; // Sale con configuracion por defecto.
   }
 
-  File cfg = LittleFS.open("/channel_config.txt", "r"); // Abre archivo de configuracion.
+  const char *configPaths[] = {"/channel_config.txt", "/config.txt"}; // Nombres compatibles.
+  File cfg; // Archivo abierto.
+  const char *loadedPath = NULL; // Ruta final encontrada.
+  for (size_t i = 0; i < sizeof(configPaths) / sizeof(configPaths[0]); i++) { // Prueba ambas rutas.
+    cfg = LittleFS.open(configPaths[i], "r");
+    if (cfg) {
+      loadedPath = configPaths[i];
+      break;
+    }
+  }
   if (!cfg) { // Si no existe archivo.
-    Serial.println("No existe /channel_config.txt en LittleFS; usando configuracion por defecto."); // Informa ausencia.
+    Serial.println("No existe /channel_config.txt ni /config.txt en LittleFS; usando configuracion por defecto."); // Informa ausencia.
     return; // Sale con configuracion por defecto.
   }
 
@@ -161,9 +170,11 @@ static void load_channel_config_from_spiffs(ShipScheduler *scheduler) { // Carga
   }
 
   cfg.close(); // Cierra archivo.
-  Serial.print("Configuracion de canal cargada desde SPIFFS: "); // Log de resultado.
+  Serial.print("Configuracion de canal cargada desde LittleFS: "); // Log de resultado.
   Serial.print(applied); // Imprime cantidad de lineas aplicadas.
   Serial.println(" lineas."); // Cierra mensaje.
+  Serial.print("[CONFIG] Archivo usado: ");
+  Serial.println(loadedPath);
   Serial.print("Demo entries cargadas desde archivo: "); // Diagnostico de demo.
   Serial.println(scheduler->demoCount); // Cantidad de demoadd procesados.
   Serial.print("[CONFIG] Llamando ship_scheduler_load_demo_manifest con demoCount=");

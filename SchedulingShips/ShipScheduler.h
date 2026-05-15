@@ -45,6 +45,7 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint8_t completionOrder[MAX_BOATS]; // Orden de finalizacion. 
   uint8_t completionCount; // Cantidad en orden de finalizacion. 
   bool ignoreCompletions; // Ignora callbacks tardios. 
+  uint8_t rrTurnIndex; // Indice circular del turno RR (apunta al proximo activo a ejecutar).
   ShipAlgo algorithm; // Algoritmo activo. 
   unsigned long rrQuantumMillis; // Quantum de RR. 
   ShipFlowMode flowMode; // Metodo de control de flujo.
@@ -83,6 +84,7 @@ typedef struct ShipScheduler { // Estructura con el estado del scheduler.
   uint16_t gateLockDurationMs; // Duracion del cierre de puertas en ms.
   bool emergencyDispatchBlockedLogged; // Evita logs repetidos de despacho bloqueado.
   unsigned long activeQuantumStartedAt; // Timestamp cuando el activo actual inicio su quantum
+  unsigned long activeQuantumAccumulatedMillis; // Quantum acumulado cuando el activo queda pausado o en emergencia.
   // Matriz de factores ajustables por par (activo, candidato) para TICO
   // Índices: [activeType][candidateType] con BoatType en ShipModel.h (3x3)
   float ticoMarginFactor[3][3];
@@ -181,4 +183,4 @@ extern ShipScheduler *gScheduler; // Puntero global para callbacks de tareas.
 
 #ifdef __cplusplus // Cierra el bloque de linkage C. 
 } // Fin de extern "C". 
-#endif // Fin de compatibilidad C++. 
+#endif // Fin de compatibilidad C++.
