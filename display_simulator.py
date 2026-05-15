@@ -232,9 +232,9 @@ class SchedulingShipsDisplay:
         self.serial_thread = threading.Thread(target=self.serial_loop, daemon=True)
         self.serial_thread.start()
 
-        # W cierra el programa de forma elegante desde cualquier control.
-        self.root.bind_all("<KeyPress-w>", self._handle_close_shortcut)
-        self.root.bind_all("<KeyPress-W>", self._handle_close_shortcut)
+        # X cierra el programa de forma elegante desde cualquier control.
+        self.root.bind_all("<KeyPress-x>", self._handle_close_shortcut)
+        self.root.bind_all("<KeyPress-X>", self._handle_close_shortcut)
         
         # Bucle de redibujo
         self.redraw()
