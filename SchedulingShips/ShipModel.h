@@ -56,6 +56,8 @@ typedef struct Boat { // Definicion de la estructura Boat.
   bool cancelled; // Marca de cancelacion para limpieza segura. 
   uint8_t stepSize; // Cantidad de casillas de la lista que avanza por movimiento.
   int16_t currentSlot; // Posicion actual en la lista (-1 si fuera del canal)
+  int16_t emergencySavedSlot; // Casilla guardada durante una emergencia (-1 si no aplica).
+  bool emergencyParked; // Indica que el barco fue retirado temporalmente del canal.
 } Boat; // Alias del tipo Boat. 
 
 // Cantidad maxima de barcos permitidos en memoria. 

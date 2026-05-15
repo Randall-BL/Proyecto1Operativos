@@ -269,7 +269,7 @@ class SchedulingShipsDisplay:
             self.log_serial(f"> {cmd}")
             
             # Si es comando "demo", limpiar pantalla
-            if cmd.strip().lower() == 'demo':
+            if cmd.strip().lower() == 'demo' or cmd.strip().lower() == 'clear':
                 self.clear_display_state()
         except Exception as e:
             self.log_serial(f"✗ Error al enviar: {e}")
@@ -1115,6 +1115,6 @@ class SchedulingShipsDisplay:
 if __name__ == '__main__':
     root = tk.Tk()
     # Cambiar COM5 al puerto que uses (COM4, COM5, etc. en Windows, /dev/ttyUSB0 en Linux)
-    app = SchedulingShipsDisplay(root, port='COM5', baudrate=115200)
+    app = SchedulingShipsDisplay(root, port='/dev/ttyACM0', baudrate=115200)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()

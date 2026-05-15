@@ -498,7 +498,7 @@ def _build_header_for(alg, flow, readymax_value=None):
     if not lines:
         return (
             'listlen 200\nvisual 100\nflow {flow}\nflowlog on\nw 2\nsignms 8000\nsign r\n'
-            'proxpin 22 23\nproxpollms 120\nsensor desactivate\nsensor threshold 10\nreadymax 12\n'
+            'proxpin 23 22\nproxpollms 120\nsensor desactivate\nsensor threshold 10\nreadymax 12\n'
             'alg {alg}\n{rr_line}step n 2\nstep p 2\nstep u 50\n\ndemoclear\n'
         ).format(flow=flow, alg=alg, rr_line=('rr 9000\n' if alg == 'rr' else ''))
 
@@ -576,7 +576,7 @@ def generate_pair_tests(sides=('l','r')):
 
     if header is None:
         header = ('listlen 200\nvisual 100\nflow fair\nflowlog on\nw 2\nsignms 8000\nsign r\n'
-                  'proxpin 22 23\nproxpollms 120\nsensor desactivate\nsensor threshold 10\nreadymax 12\n'
+                  'proxpin 23 22\nproxpollms 120\nsensor desactivate\nsensor threshold 10\nreadymax 12\n'
                   'alg fcfs\nstep n 2\nstep p 2\nstep u 50\n\ndemoclear\n')
 
     os.makedirs(TEST_DIR, exist_ok=True)

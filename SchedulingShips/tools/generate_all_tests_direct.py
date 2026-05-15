@@ -8,7 +8,7 @@ flows = ['tico','fair','sign']
 sides = ['l','r']
 types = ['n','p','u']
 header_tpl = ('listlen 200\nvisual 100\nflow {flow}\nflowlog on\nw 2\nsignms 8000\nsign r\n'
-             'proxpin 22 23\nproxpollms 120\nsensor desactivate\nsensor threshold 10\nreadymax 12\n'
+             'proxpin 23 22\nproxpollms 120\nsensor desactivate\nsensor threshold 10\nreadymax 12\n'
              'alg {alg}\n{rr_line}step n 2\nstep p 2\nstep u 50\n\ndemoclear\n')
 count = 0
 for alg in algorithms:
