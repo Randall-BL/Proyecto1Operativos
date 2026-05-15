@@ -4,6 +4,54 @@
 Simulador de pantalla para Scheduling Ships
 Conecta por serial al ESP32 y visualiza el estado del canal en tiempo real
 Con interfaz de comandos como Arduino IDE
+
+Documentación interna (resumen técnico)
+--------------------------------------
+Este programa NO es un "simulador" de planificación: es un visualizador que
+reconstruye el estado observando logs del firmware.
+
+Modelo de estado (invariantes):
+
+- `self.queue_left` / `self.queue_right` son colas VISUALES (IDs). Se actualizan
+    cuando el firmware anuncia "Barco agregado" o cuando se reencola por evento.
+- `self.crossings` contiene cruces activos (barcos que se dibujan dentro del
+    canal). Un "cruce" es un dict con:
+        - `boat_id`, `boat_type`, `boat_origin`, `boat_algorithm`
+        - `start_ts`, `duration_s`
+        - `paused` + `pause_progress` (para pausa explícita)
+        - `pending` (espera por TICO / gap), `active` (vive/muere)
+- `self.boat_slot_by_id` y `self.boat_slot_events_by_id` permiten posicionar el
+    barco por eventos discretos del scheduler (logs "moved to slot"). Esto es
+    crítico para evitar desincronización cuando hay backlog por Serial.
+
+Regla de oro de sincronía:
+
+- El movimiento/estado del canal se alinea por EVENTOS del firmware (logs), no
+    por timing del PC. Si no hay eventos de slot, el barco se mantiene en la
+    entrada (para no inventar posiciones).
+
+Mapeo de logs → acciones del simulador (lo importante):
+
+- Preempción (algoritmos apropiativos):
+        - Log: "Preemption:" (sin ID)
+        - Acción: se toma `self.state['active_boat']`, se quita del canal y se
+            reencola al frente. Esto evita barcos "fantasma".
+
+- Interrupción / emergencia por sensor (modelo LCD):
+        - Log: "[EMERGENCY] Barco #X congelado en el canal"
+        - Firmware: libera slot y marca `emergencyParked` (no se dibuja en la TFT).
+        - Acción aquí: el barco DESAPARECE del canal (se remueve de `crossings`) y
+            se limpian slots/eventos para que no reaparezca por backlog.
+        - Log: "[EMERGENCY] Barco #X restaurado en casilla Y"
+        - Acción aquí: el barco REAPARECE en el canal y se fija su slot a Y.
+
+- Destrucción (caso límite):
+        - Log contiene "se destruye #X".
+        - Acción: remover del canal y limpiar slots para evitar persistencia.
+
+Nota: el sistema permite múltiples eventos por barco; por robustez eliminamos
+TODAS las instancias de `crossings` que coincidan con un `boat_id` cuando toca
+desaparecer (previene duplicados por integración).
 """
 
 import tkinter as tk
@@ -17,7 +65,11 @@ import re
 import os
 
 class SchedulingShipsDisplay:
-    """Interfaz Tkinter que refleja la pantalla embebida y los logs seriales."""
+    """Interfaz Tkinter que refleja la pantalla embebida y los logs seriales.
+
+    Esta clase mantiene un modelo de vista sincronizado por eventos del firmware.
+    Ver el docstring del módulo para el mapeo de logs y las invariantes.
+    """
 
     def __init__(self, root, port='COM5', baudrate=115200):
         """Inicializa estado de UI, hilo serial y modelos de vista."""
@@ -30,6 +82,7 @@ class SchedulingShipsDisplay:
         self.baudrate = baudrate
         self.ser = None
         self.running = True
+        self.closing = False
         self.serial_queue = Queue()
         self.last_update_ts = time.time()
         self.app_start_ts = time.time()
@@ -44,9 +97,9 @@ class SchedulingShipsDisplay:
         self.crossings = []
 
         # Parametros de dibujo para barcos en el canal
-        self.boat_width = 8
-        self.boat_height = 6
-        self.boat_gap_px = 10
+        self.boat_width = 1
+        self.boat_height = 7
+        self.boat_gap_px = 20
 
         # Tiempos por tipo cargados directamente desde ShipModel.c (sin valores por defecto aquí)
         self.service_time_by_type_ms = {}
@@ -77,6 +130,11 @@ class SchedulingShipsDisplay:
         self.boat_move_period_ms_by_id = {}
 
         # Barcos retirados temporalmente del canal por emergencia (interrupción)
+        #
+        # En el firmware, durante emergencia, el barco se marca como
+        # `emergencyParked` y se libera su casilla; la TFT deja de dibujarlo.
+        # Aquí mantenemos el mismo comportamiento: desaparece del canal y
+        # reaparece solo cuando el firmware lo "restaura en casilla".
         self.emergency_parked_boats = set()
 
         # Largo real de la lista (slots) reportado por logs de boat task: list_len = totalSlots + 1
@@ -173,9 +231,18 @@ class SchedulingShipsDisplay:
         # Inicia conexion serial en un hilo
         self.serial_thread = threading.Thread(target=self.serial_loop, daemon=True)
         self.serial_thread.start()
+
+        # W cierra el programa de forma elegante desde cualquier control.
+        self.root.bind_all("<KeyPress-w>", self._handle_close_shortcut)
+        self.root.bind_all("<KeyPress-W>", self._handle_close_shortcut)
         
         # Bucle de redibujo
         self.redraw()
+
+    def _handle_close_shortcut(self, event=None):
+        """Atajo de teclado para cerrar el programa de forma controlada."""
+        self.on_closing()
+        return "break"
     
     def log_serial(self, message):
         """Agrega un mensaje al monitor serial"""
@@ -370,14 +437,17 @@ class SchedulingShipsDisplay:
     def _enqueue_slot_event(self, boat_id, slot):
         """Encola eventos de slot para aplicarlos gradualmente en redraw()."""
         if boat_id is None:
+            # Sin id no hay manera de asociar el slot a un barco concreto.
             return
         try:
             boat_id = int(boat_id)
         except Exception:
+            # Un id no numerico se descarta antes de tocar el modelo.
             return
 
         q = self.boat_slot_events_by_id.get(boat_id)
         if q is None:
+            # Cada barco mantiene su propio buffer para tolerar backlog de Serial.
             q = deque(maxlen=5000)
             self.boat_slot_events_by_id[boat_id] = q
         q.append(int(slot))
@@ -391,9 +461,10 @@ class SchedulingShipsDisplay:
         """
         q = self.boat_slot_events_by_id.get(boat_id)
         if not q:
+            # Sin eventos pendientes no hay nada que sincronizar.
             return
 
-        # Consume todo y deja el último slot.
+        # Consume todo y conserva el ultimo slot, que es el estado mas reciente.
         last = None
         while q:
             last = q.popleft()
@@ -413,28 +484,33 @@ class SchedulingShipsDisplay:
 
     def canal_travel_length(self):
         """Calcula la distancia horizontal de cruce en pixeles logicos."""
+        # El canal deja margenes laterales para no invadir los paneles de cola.
         side_w = 18
         return max(1, self.tft_width - (2 * side_w) - 8)
 
     def compute_safe_start(self, now, duration_s, direction):
         """Calcula el inicio mas temprano para evitar colisiones."""
         travel_len = self.canal_travel_length()
+        # El margen de separacion se expresa como fraccion del recorrido total.
         gap_progress = min(0.4, self.boat_gap_px / travel_len)
         start_time = now
 
         for crossing in self.crossings:
             if not crossing.get('active'):
+                # Los cruces inactivos ya no influyen en la seguridad de arranque.
                 continue
 
             start_a = crossing['start_ts']
             duration_a = crossing['duration_s']
 
             if crossing['direction'] != direction:
+                # En sentidos opuestos se espera a que el cruce actual termine.
                 end_a = start_a + duration_a
                 if end_a > start_time:
                     start_time = end_a
                 continue
 
+            # En el mismo sentido se busca una separacion visual minima.
             start_gap = start_a + (gap_progress * duration_a)
             end_gap = (start_a + duration_a) - ((1.0 - gap_progress) * duration_s)
             required = max(start_gap, end_gap)
@@ -447,6 +523,7 @@ class SchedulingShipsDisplay:
         """Busca un cruce activo por id de barco."""
         for crossing in self.crossings:
             if crossing.get('active') and crossing.get('boat_id') == boat_id:
+                # Se devuelve la primera coincidencia activa; por diseño deberia ser unica.
                 return crossing
         return None
 
@@ -459,9 +536,11 @@ class SchedulingShipsDisplay:
         pending = False
 
         if self.state.get('flow_mode') == 'TICO':
+            # TICO no arranca de forma ciega: primero calcula un instante seguro.
             scheduled_start = self.compute_safe_start(now, duration_s, direction)
             pending = scheduled_start > now + 0.001
 
+        # El cruce resume lo minimo necesario para reconstruir una pieza visual.
         crossing = {
             'boat_id': boat_id,
             'boat_type': boat_type,
@@ -479,8 +558,10 @@ class SchedulingShipsDisplay:
         self.crossings.append(crossing)
 
         if pending:
+            # Si aun no puede entrar al canal, se mantiene visible en cola.
             self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm, front=True)
         else:
+            # Cuando ya puede cruzar, se retira de la cola visual.
             self.remove_boat_from_queues(boat_id)
 
     def load_service_times_from_c(self):
@@ -495,6 +576,7 @@ class SchedulingShipsDisplay:
             candidate = os.path.join(base_dir, '..', 'SchedulingShips', 'ShipModel.c')
             candidate = os.path.normpath(candidate)
             if not os.path.exists(candidate):
+                # Si no se encuentra el archivo fuente, se conserva el fallback.
                 self.serial_queue.put(("log", f"Aviso: ShipModel.c no encontrado en {candidate}. Usando valores por defecto."))
                 return
 
@@ -512,6 +594,7 @@ class SchedulingShipsDisplay:
             for k, pat in patterns.items():
                 m = re.search(pat, src)
                 if m:
+                    # Solo se almacenan valores que realmente aparecieron en el C.
                     found[k] = int(m.group(1))
 
             if found:
@@ -520,6 +603,7 @@ class SchedulingShipsDisplay:
                     self.service_time_by_type_ms[k] = v
                 self.serial_queue.put(("log", f"Tiempos de servicio cargados desde ShipModel.c: {found}"))
             else:
+                # Si no hay coincidencias, la UI sigue con duraciones seguras por defecto.
                 self.serial_queue.put(("log", "No se encontraron tiempos en ShipModel.c; usando valores por defecto."))
 
         except Exception as e:
@@ -529,11 +613,13 @@ class SchedulingShipsDisplay:
 
     def queue_for_origin(self, boat_origin):
         """Selecciona la cola que corresponde al origen."""
+        # Por convenio, right cae a la barra derecha y cualquier otro valor a la izquierda.
         return self.queue_right if boat_origin == 'right' else self.queue_left
 
     def duration_for_boat_type(self, boat_type):
         """Devuelve la duracion de animacion en segundos para el tipo de barco."""
         if not boat_type:
+            # Un tipo ausente se normaliza a normal para no dejar el cruce sin duracion.
             boat_type = 'normal'
 
         duration_ms = self.service_time_by_type_ms.get(boat_type)
@@ -544,12 +630,14 @@ class SchedulingShipsDisplay:
             except Exception:
                 pass
             duration_ms = 1000
+        # El render consume segundos, no milisegundos.
         return duration_ms / 1000.0
 
     def origin_to_direction(self, boat_origin):
         """Convierte el origen en una etiqueta de direccion."""
         if boat_origin == 'right':
             return 'RL'
+        # Cualquier otro caso se trata como izquierda->derecha.
         return 'LR'
 
     def add_boat_to_queue(self, boat_id, boat_origin, boat_type=None, boat_algorithm=None, front=False):
@@ -558,6 +646,7 @@ class SchedulingShipsDisplay:
         boat_algorithm = self.normalize_algorithm(boat_algorithm or self.state.get('algorithm', 'FCFS'))
         meta = self.boat_algorithm_by_id.get(boat_id)
         if meta is None:
+            # La metadata del barco se crea una sola vez y luego se actualiza.
             meta = {
                 'id': boat_id,
                 'type': boat_type,
@@ -572,8 +661,10 @@ class SchedulingShipsDisplay:
 
         queue = self.queue_for_origin(boat_origin)
         if boat_id in queue:
+            # Evita duplicar la misma ID si el evento llega mas de una vez.
             queue.remove(boat_id)
         if front:
+            # Reencolado al frente para preempciones y restauraciones.
             queue.insert(0, boat_id)
         else:
             queue.append(boat_id)
@@ -581,8 +672,10 @@ class SchedulingShipsDisplay:
     def remove_boat_from_queues(self, boat_id):
         """Elimina un id de barco de ambas colas."""
         if boat_id in self.queue_left:
+            # Se limpia la cola izquierda si el barco seguia visible alli.
             self.queue_left.remove(boat_id)
         if boat_id in self.queue_right:
+            # Se limpia la cola derecha por simetria.
             self.queue_right.remove(boat_id)
 
     def current_boat_label(self, boat_id):
@@ -615,12 +708,41 @@ class SchedulingShipsDisplay:
             'pesquera': color_map['pesquera'],
             'patrulla': color_map['patrulla'],
         }.get(normalized, fallback)
+
+    def _rects_overlap(self, rect_a, rect_b):
+        """Determina si dos rectangulos se pisan en pantalla."""
+        left_a, top_a, right_a, bottom_a = rect_a
+        left_b, top_b, right_b, bottom_b = rect_b
+        return not (
+            right_a <= left_b
+            or right_b <= left_a
+            or bottom_a <= top_b
+            or bottom_b <= top_a
+        )
+
+
+
+
     
     def parse_line(self, line):
-        """Parsea una línea del serial y actualiza estado"""
+        """Parsea una línea del serial y actualiza estado.
+
+        Filosofía:
+        - Este parser NO inventa estado: reacciona a eventos explícitos.
+        - Cuando el firmware dice que un barco sale del canal (preempción,
+          congelado por emergencia, destrucción), el simulador debe eliminar
+          cualquier representación residual (crossing + slots) para evitar
+          "barcos fantasma".
+        """
         try:
             def _remove_crossings_for_boat(boat_id):
-                """Elimina cualquier cruce activo asociado a un barco (por seguridad)."""
+                """Elimina cualquier cruce asociado a un barco.
+
+                Nota: por integración pueden existir duplicados del mismo barco
+                en `self.crossings` (p.ej. si un "Start" llega tarde). Para que
+                la vista sea consistente, al retirar del canal removemos todas
+                las instancias de ese `boat_id`.
+                """
                 if boat_id is None:
                     return
                 try:
@@ -636,6 +758,11 @@ class SchedulingShipsDisplay:
 
                 Se usa para preempciones (algoritmos apropiativos) y otros casos donde
                 el barco deja de estar activo en el canal en la LCD.
+
+                Efectos:
+                - Quita cruces (canal)
+                - Limpia slots/eventos
+                - Inserta en cola visual según origen
                 """
                 if boat_id is None:
                     return
@@ -662,7 +789,13 @@ class SchedulingShipsDisplay:
                 self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm, front=front)
 
             def _park_boat_due_to_emergency(boat_id):
-                """Refleja 'congelado en el canal': en LCD desaparece durante la emergencia."""
+                """Refleja interrupción por emergencia: "congelado en el canal".
+
+                En el firmware, el barco se retira temporalmente del canal: se
+                libera la casilla y la TFT no lo dibuja. En el simulador hacemos
+                lo mismo (desaparece), y esperamos al evento de "restaurado en
+                casilla" para volver a dibujarlo.
+                """
                 if boat_id is None:
                     return
                 try:
@@ -684,7 +817,12 @@ class SchedulingShipsDisplay:
                 self.boat_slot_last_applied_ts_by_id.pop(boat_id, None)
 
             def _restore_boat_after_emergency(boat_id, restored_slot):
-                """Refleja 'restaurado en casilla': el barco vuelve a verse en el canal."""
+                """Refleja fin de emergencia: "restaurado en casilla".
+
+                El firmware intenta reservar la casilla guardada y vuelve a
+                dibujar el barco en el canal. Aquí recreamos/activamos el cruce
+                (si hace falta) y fijamos su slot reportado.
+                """
                 if boat_id is None:
                     return
                 try:
@@ -732,6 +870,7 @@ class SchedulingShipsDisplay:
 
             # Detecta reinicio/reboot del ESP32
             if any(keyword in line.lower() for keyword in ['starting...', 'boot', 'reboot', 'reset', 'ets jul']):
+                # Un reboot invalida todo el estado visual previo.
                 self.clear_display_state()
                 return
 
@@ -739,6 +878,7 @@ class SchedulingShipsDisplay:
             # El log no incluye el id del preemptado, así que usamos el activo actual.
             if line.startswith("Preemption:"):
                 preempted_id = self.state.get('active_boat')
+                # El activo conocido es el que debe volver a la cola visual.
                 _remove_from_channel_and_requeue(preempted_id, front=True)
                 return
 
@@ -747,6 +887,7 @@ class SchedulingShipsDisplay:
             if "congelado en el canal" in line and "[EMERGENCY]" in line:
                 m = re.search(r'Barco\s*#(?P<id>\d+)', line)
                 if m:
+                    # La emergencia saca temporalmente al barco de la representacion del canal.
                     _park_boat_due_to_emergency(int(m.group('id')))
                 return
 
@@ -754,6 +895,7 @@ class SchedulingShipsDisplay:
             if "restaurado en casilla" in line and "[EMERGENCY]" in line:
                 m = re.search(r'Barco\s*#(?P<id>\d+)\s+restaurado en casilla\s+(?P<slot>-?\d+)', line)
                 if m:
+                    # El barco vuelve a aparecer y se fija en el slot indicado por el firmware.
                     _restore_boat_after_emergency(int(m.group('id')), int(m.group('slot')))
                 return
 
@@ -763,6 +905,7 @@ class SchedulingShipsDisplay:
                 m = re.search(r'#(?P<id>\d+)', line)
                 if m:
                     destroyed_id = int(m.group('id'))
+                    # La destruccion es terminal: se elimina cualquier resto visual del barco.
                     crossing = self.get_crossing(destroyed_id)
                     if crossing:
                         crossing['active'] = False
@@ -785,6 +928,7 @@ class SchedulingShipsDisplay:
                         m = re.search(r'movesCount=(?P<moves>\d+)\s+perMoveMs=(?P<per>\d+)\s+totalSlots=(?P<total>\d+)\s+stepSize=(?P<step>\d+)', line)
                         if m:
                             total_slots = int(m.group('total'))
+                            # El firmware reporta totalSlots = listLength - 1, por eso se suma 1.
                             self.list_length = total_slots + 1
                             self.boat_move_period_ms_by_id[boat_id] = int(m.group('per'))
                             # Inicializa slot de entrada si aún no existe
@@ -799,6 +943,7 @@ class SchedulingShipsDisplay:
                     if "moved to slot" in line:
                         m = re.search(r'moved to slot\s+(?P<slot>-?\d+)', line)
                         if m:
+                            # El slot se encola para aplicar el ultimo estado conocido en el redraw.
                             self._enqueue_slot_event(boat_id, int(m.group('slot')))
 
                     return
@@ -816,6 +961,7 @@ class SchedulingShipsDisplay:
                     boat_id = int(match.group(1))
                     boat_origin = self.normalize_boat_origin(origin_match.group(1))
                     self.boat_origin_by_id[boat_id] = boat_origin
+                    # Si el barco entra a cola, se refleja en la barra lateral.
                     self.add_boat_to_queue(boat_id, boat_origin, boat_type=self.boat_type_by_id.get(boat_id))
 
             if line.startswith("Algoritmo:"):
@@ -835,6 +981,7 @@ class SchedulingShipsDisplay:
                     boat_origin = self.boat_origin_by_id.get(boat_id)
                     boat_algorithm = self.boat_algorithm_by_id.get(boat_id, {}).get('algorithm', self.state.get('algorithm', 'FCFS'))
                     self.state['active_boat'] = boat_id
+                    # El start marca el paso de cola a canal.
                     self.start_crossing(boat_id, boat_type, boat_origin, boat_algorithm)
             
             # Detecta finalizacion de barco
@@ -853,6 +1000,7 @@ class SchedulingShipsDisplay:
 
                     crossing = self.get_crossing(boat_id)
                     if crossing:
+                        # Al finalizar, el cruce deja de dibujarse en el canal.
                         crossing['active'] = False
                         self.crossings = [item for item in self.crossings if item.get('active')]
                     self.state['active_boat'] = None
@@ -868,6 +1016,7 @@ class SchedulingShipsDisplay:
                     boat_id = int(match.group(1))
                     crossing = self.get_crossing(boat_id)
                     if crossing:
+                        # La pausa congela la posicion relativa actual del barco.
                         crossing['paused'] = True
                         elapsed = time.time() - crossing['start_ts']
                         crossing['pause_progress'] = max(0.0, min(1.0, elapsed / crossing['duration_s']))
@@ -878,6 +1027,7 @@ class SchedulingShipsDisplay:
                     boat_id = int(match.group(1))
                     crossing = self.get_crossing(boat_id)
                     if crossing:
+                        # La reanudacion reescribe el tiempo base para que la animacion no salte.
                         crossing['paused'] = False
                         crossing['start_ts'] = time.time() - (crossing['pause_progress'] * crossing['duration_s'])
 
@@ -897,6 +1047,7 @@ class SchedulingShipsDisplay:
                     boat_id = int(match.group(1))
                     crossing = self.get_crossing(boat_id)
                     if crossing:
+                        # Si el firmware ya no puede sostener el barco, se limpia del canal.
                         crossing['active'] = False
                         self.crossings = [item for item in self.crossings if item.get('active')]
                         self.state['active_boat'] = None
@@ -912,6 +1063,7 @@ class SchedulingShipsDisplay:
             if "Ready count:" in line:
                 match = re.search(r'Ready count: (\d+)', line)
                 if match:
+                    # El contador de cola se refleja en el pie de pantalla.
                     self.state['ready_count'] = int(match.group(1))
             
             # Detecta estado de compuertas
@@ -926,30 +1078,37 @@ class SchedulingShipsDisplay:
             if "GATES_CLOSED" in line:
                 self.state['emergency_mode'] = 'CERRADO'
             if "Limpiando estado de emergencia" in line or "emergency clear" in line:
+                # El modo de emergencia vuelve a estado normal.
                 self.state['emergency_mode'] = 'NONE'
             
             # Sensor
             if "Sensor ACTIVADO" in line or "activated" in line:
+                # Se activa el indicador visual del sensor.
                 self.state['sensor_enabled'] = True
             if "Sensor DESACTIVADO" in line or "deactivated" in line:
+                # Se oculta el indicador visual del sensor.
                 self.state['sensor_enabled'] = False
             
             # Proximidad
             if "distancia:" in line:
                 match = re.search(r'distancia: (\d+)', line)
                 if match:
+                    # La distancia de proximidad se usa como telemetria en el pie de pantalla.
                     self.state['proximity_distance'] = int(match.group(1))
             
             # Colisiones
             if "Colision evitada" in line:
+                # El contador ayuda a evaluar la frecuencia de eventos de seguridad.
                 self.state['collision_count'] += 1
                 
         except Exception as e:
+            # El parser nunca debe romper la UI por una linea malformada.
             pass
     
     def redraw(self):
         """Redibuja el canvas con escala basada en 128x160"""
         self.process_serial_events()
+        # Cronometro de ejecucion visible en la interfaz.
         elapsed = int(time.time() - self.app_start_ts)
         hours = elapsed // 3600
         minutes = (elapsed % 3600) // 60
@@ -957,6 +1116,7 @@ class SchedulingShipsDisplay:
         self.timer_label.config(text=f"Tiempo: {hours:02d}:{minutes:02d}:{seconds:02d}")
         self.canvas.delete("all")
 
+        # Factores de escala para convertir del lienzo logico al lienzo visible.
         s = self.scale
         w = self.tft_width
         h = self.tft_height
@@ -967,14 +1127,14 @@ class SchedulingShipsDisplay:
         def sy(y):
             return int(y * s)
 
-        # Layout lógico del TFT (128x160)
+        # Layout logico del TFT (128x160).
         header_h = 14
         footer_h = 16
         side_w = 18
         top = header_h
         bottom = h - footer_h
 
-        # Encabezado
+        # Encabezado con algoritmo y estado de compuertas.
         self.canvas.create_rectangle(sx(0), sy(0), sx(w), sy(header_h), fill='navy', outline='white', width=1)
         algo = self.state.get('algorithm', 'FCFS')
         self.canvas.create_text(sx(2), sy(7), text=algo, fill='white', font=("Arial", 8, "bold"), anchor='w')
@@ -984,7 +1144,7 @@ class SchedulingShipsDisplay:
 
         self.canvas.create_text(sx(w - 2), sy(7), text=gate_text, fill=gate_color, font=("Arial", 8, "bold"), anchor='e')
 
-        # Paneles laterales y canal
+        # Paneles laterales y canal central.
         self.canvas.create_rectangle(sx(0), sy(top), sx(side_w), sy(bottom), fill='#0b2a6f', outline='cyan', width=1)
         self.canvas.create_text(sx(side_w // 2), sy(top + 4), text="IZQ", fill='yellow', font=("Arial", 7, "bold"))
         self.draw_queue_items(self.queue_left, sx, sy, 0, side_w, top + 12, bottom)
@@ -996,48 +1156,51 @@ class SchedulingShipsDisplay:
         self.canvas.create_text(sx(w - side_w // 2), sy(top + 4), text="DER", fill='yellow', font=("Arial", 7, "bold"))
         self.draw_queue_items(self.queue_right, sx, sy, w - side_w, w, top + 12, bottom)
 
-        # Animacion de barcos activos
+        # Animacion de barcos activos reconstruida desde logs y slots.
         now = time.time()
         draw_items = []
         for crossing in self.crossings:
             if not crossing.get('active'):
+                # Los cruces inactivos ya no se dibujan.
                 continue
 
             if crossing.get('pending'):
                 if now < crossing['start_ts']:
+                    # Aun no debe aparecer en el canal.
                     continue
                 crossing['pending'] = False
                 self.remove_boat_from_queues(crossing['boat_id'])
 
             if crossing.get('paused'):
+                # Si esta pausado, la posicion queda congelada en el ultimo progreso conocido.
                 elapsed = crossing['pause_progress'] * crossing['duration_s']
             else:
+                # Si no esta pausado, el progreso depende del tiempo real transcurrido.
                 elapsed = now - crossing['start_ts']
 
             progress = max(0.0, min(1.0, elapsed / max(1e-6, crossing['duration_s'])))
 
-            # Movimiento por casillas discretas
+            # Movimiento por casillas discretas.
             cells = getattr(self, 'channel_cells', 10) or 10
             denom = max(1, cells - 1)
-            # Preferir posición desde logs de scheduler si existe
+            # Preferir posicion desde logs de scheduler si existe.
             bid = crossing.get('boat_id')
 
             if bid is not None:
-                # Aplica movimientos pendientes sin consumirlos de golpe
+                # Aplica movimientos pendientes sin consumirlos de golpe.
                 self._apply_slot_events_for_boat(bid, now)
 
             if bid is not None and bid in self.boat_slot_by_id:
-                # Usar posición informada por logs de "moved to slot"
+                # Usar posicion informada por logs de "moved to slot".
                 slot = self.boat_slot_by_id[bid]
                 list_len = getattr(self, 'list_length', None)
                 if list_len and list_len > 0:
-                    # Mapeo por grupos: cada (list_len / cells) slots = una casilla visual
-                    # Ejemplo: list_len=100, cells=10 → cada 10 slots = 1 casilla
+                    # Mapeo por grupos: cada bloque de slots logicos representa una casilla visual.
                     step_size = (list_len + cells - 1) // cells if cells > 0 else 1
                     if step_size <= 0:
                         step_size = 1
 
-                    # Para RL invertimos el slot para que el barco arranque a la derecha
+                    # Para RL se invierte el slot para que el barco arranque a la derecha.
                     if crossing.get('boat_origin') == 'right' or crossing.get('direction') == 'RL':
                         effective = (list_len - 1) - slot
                     else:
@@ -1049,7 +1212,7 @@ class SchedulingShipsDisplay:
                         cell_index = denom
                     effective_for_sort = int(effective)
                 else:
-                    # Fallback: usar progreso temporal
+                    # Fallback: usar progreso temporal si aun no hay longitud de canal.
                     cell_index = int(progress * denom)
                     if cell_index > denom:
                         cell_index = denom
@@ -1066,13 +1229,15 @@ class SchedulingShipsDisplay:
             x_right = w - side_w - 4
             pos_ratio = cell_index / float(denom)
             if crossing['boat_origin'] == 'right' or crossing['direction'] == 'RL':
+                # La posicion horizontal se calcula de derecha a izquierda.
                 x = x_right - (x_right - x_left) * pos_ratio
             else:
+                # La posicion horizontal se calcula de izquierda a derecha.
                 x = x_left + (x_right - x_left) * pos_ratio
             y = (top + bottom) / 2
             fill_color = self.boat_fill_color(crossing.get('boat_type'))
 
-            # Agrupar por casilla y dirección para evitar solapamiento visual
+            # Agrupar por casilla y direccion para evitar solapamiento visual.
             direction_key = crossing.get('direction') or ('RL' if (crossing.get('boat_origin') == 'right') else 'LR')
             group_key = (cell_index, direction_key)
             draw_items.append({
@@ -1084,82 +1249,73 @@ class SchedulingShipsDisplay:
                 'crossing': crossing,
             })
 
-        # Dibuja grupos con offset horizontal (un solo carril) para que no se solapen.
-        if draw_items:
-            groups = {}
-            for item in draw_items:
-                groups.setdefault(item['group_key'], []).append(item)
+        # Dibuja todos los barcos en la misma línea central, sin desplazamiento vertical.
+        # Antes de dibujar, resolver solapamientos horizontales: se ordena por x natural y se
+        # empuja hacia adelante cualquier barco que colisionaría con el anterior.
+        min_gap = self.boat_width + 1  # separacion minima entre centros (px logicos)
+        draw_items_sorted = sorted(draw_items, key=lambda it: it['x'])
+        placed_xs = []  # centros x ya colocados en este frame
 
-            x_min = side_w + 4
-            x_max = w - side_w - 4
-            spacing = self.boat_width + 2
+        for item in draw_items_sorted:
+            x = item['x']
+            y = item['y']
+            fill_color = item['fill_color']
+            crossing = item['crossing']
 
-            for _key, items in groups.items():
-                # Ordenar por posición efectiva: el que está más adelante se dibuja primero.
-                # (pos ya viene invertido para RL).
-                items.sort(key=lambda it: (-int(it.get('pos', 0)), int(it['crossing'].get('boat_id', 0))))
+            # Si este barco solaparía con alguno ya colocado, lo desplaza al primer hueco libre.
+            for px in sorted(placed_xs):
+                if abs(x - px) < min_gap:
+                    x = px + min_gap
+            placed_xs.append(x)
 
-                # En un carril: el de atrás se desplaza hacia atrás en X.
-                direction = items[0]['group_key'][1]
-                sign = 1 if direction == 'RL' else -1
+            self.canvas.create_rectangle(
+                sx(x - self.boat_width / 2),
+                sy(y - self.boat_height / 2),
+                sx(x + self.boat_width / 2),
+                sy(y + self.boat_height / 2),
+                fill=fill_color,
+                outline='white',
+                width=1,
+            )
+            self.canvas.create_text(sx(x), sy(y), text=str(crossing['boat_id']), fill='white', font=("Arial", 6, "bold"))
+            if crossing.get('boat_type'):
+                self.canvas.create_text(sx(x), sy(y + 5), text=crossing['boat_type'][:3].upper(), fill='white', font=("Arial", 5, "bold"))
+            if crossing.get('boat_origin'):
+                side_tag = 'L' if crossing['boat_origin'] == 'left' else 'R'
+                self.canvas.create_text(sx(x), sy(y - 6), text=side_tag, fill='white', font=("Arial", 5, "bold"))
+            if crossing.get('boat_algorithm'):
+                self.canvas.create_text(sx(x), sy(y + 10), text=self.algorithm_short(crossing['boat_algorithm']), fill='white', font=("Arial", 5, "bold"))
 
-                for i, item in enumerate(items):
-                    crossing = item['crossing']
-                    x = item['x'] + (i * spacing * sign)
-                    if x < x_min:
-                        x = x_min
-                    if x > x_max:
-                        x = x_max
-                    y = item['y']
-
-                    self.canvas.create_rectangle(
-                        sx(x - (self.boat_width / 2)),
-                        sy(y - (self.boat_height / 2)),
-                        sx(x + (self.boat_width / 2)),
-                        sy(y + (self.boat_height / 2)),
-                        fill=item['fill_color'],
-                        outline='white',
-                        width=1,
-                    )
-                    self.canvas.create_text(sx(x), sy(y), text=str(crossing['boat_id']), fill='white', font=("Arial", 7, "bold"))
-                    if crossing.get('boat_type'):
-                        self.canvas.create_text(sx(x), sy(y + 6), text=crossing['boat_type'][:3].upper(), fill='white', font=("Arial", 6, "bold"))
-                    if crossing.get('boat_origin'):
-                        side_tag = 'L' if crossing['boat_origin'] == 'left' else 'R'
-                        self.canvas.create_text(sx(x), sy(y - 7), text=side_tag, fill='white', font=("Arial", 6, "bold"))
-                    if crossing.get('boat_algorithm'):
-                        self.canvas.create_text(sx(x), sy(y + 12), text=self.algorithm_short(crossing['boat_algorithm']), fill='white', font=("Arial", 6, "bold"))
-
-        # Información de cola visible
-        # Pie con estadísticas
+        # Pie con estadisticas visibles.
         self.canvas.create_rectangle(sx(0), sy(bottom), sx(w), sy(h), fill='#000033', outline='white', width=1)
         self.canvas.create_text(sx(2), sy(bottom + 5), text=f"QL:{len(self.queue_left)}", fill='lightgreen', font=("Arial", 7), anchor='w')
         self.canvas.create_text(sx(34), sy(bottom + 5), text=f"QR:{len(self.queue_right)}", fill='lightgreen', font=("Arial", 7), anchor='w')
         self.canvas.create_text(sx(68), sy(bottom + 5), text=f"OK:{self.state['completed_total']}", fill='lightgreen', font=("Arial", 7), anchor='w')
         self.canvas.create_text(sx(100), sy(bottom + 5), text=f"C:{self.state['collision_count']}", fill='orange', font=("Arial", 7), anchor='w')
 
-        # Estado de emergencia si aplica
+        # Estado de emergencia si aplica.
         if self.state['emergency_mode'] != 'NONE':
             self.canvas.create_rectangle(sx(20), sy(top + 16), sx(w - 20), sy(top + 34), fill='red', outline='white', width=1)
             self.canvas.create_text(sx(w // 2), sy(top + 25), text="EMERGENCIA", fill='white', font=("Arial", 8, "bold"))
 
-        # Sensor info
+        # Telemetria del sensor en el pie de pantalla.
         if self.state['sensor_enabled']:
             sensor_text = f"S:{self.state['proximity_distance']}cm"
             self.canvas.create_text(sx(w // 2), sy(bottom - 6), text=sensor_text, fill='yellow', font=("Arial", 7))
 
-        # Redibuja a 20 FPS para animacion fluida
+        # Redibuja de forma periodica para mantener la animacion fluida.
         self.root.after(50, self.redraw)
 
     def draw_queue_items(self, queue_ids, sx, sy, panel_left, panel_right, top_y, bottom_y):
         """Dibuja barcos como cajas compactas dentro de la barra lateral."""
+        # Limita la cantidad visible para que la barra lateral no se vuelva ilegible.
         max_items = 6
         visible = queue_ids[:max_items]
         slot_h = 16
-        box_w = 11
-        box_h = 10
+        box_w = 9
+        box_h = 8
 
-        # Calcula el centro real de la barra azul lateral y deja un margen interno
+        # Calcula el centro real de la barra lateral y deja un margen interno.
         panel_w = panel_right - panel_left
         inner_margin = 2
         if panel_left == 0:
@@ -1181,19 +1337,38 @@ class SchedulingShipsDisplay:
             boat_algo = meta.get('algorithm') or self.state.get('algorithm', 'FCFS')
             fill = self.boat_fill_color(boat_type)
             outline = 'white'
+            # Cada barco de cola ocupa una ficha compacta con id y metadatos minimos.
             self.canvas.create_rectangle(sx(x0), sy(y), sx(x1), sy(y + box_h), fill=fill, outline=outline, width=1)
-            self.canvas.create_text(sx(text_x), sy(y + 3), text=f"#{boat_id}", fill='black', font=font_id, anchor='n')
-            self.canvas.create_text(sx(text_x), sy(y + 6), text=f"{self.boat_type_short(boat_type)}{self.algorithm_short(boat_algo)}", fill='black', font=font_meta, anchor='n')
+            self.canvas.create_text(sx(text_x), sy(y + 2), text=f"#{boat_id}", fill='black', font=("Arial", 4, "bold"), anchor='n')
+            self.canvas.create_text(sx(text_x), sy(y + 5), text=f"{self.boat_type_short(boat_type)}{self.algorithm_short(boat_algo)}", fill='black', font=("Arial", 4, "bold"), anchor='n')
             y += slot_h
 
         if len(queue_ids) > max_items:
+            # Indica cuantos barcos quedaron ocultos por falta de espacio.
             self.canvas.create_text(sx(text_x), sy(bottom_y - 8), text=f"+{len(queue_ids) - max_items}", fill='white', font=("Arial", 5, "bold"), anchor='center')
     
     def on_closing(self):
         """Cierra la aplicación"""
+        if self.closing:
+            return
+        self.closing = True
         self.running = False
+        if hasattr(self, 'status_label'):
+            self.status_label.config(text="Cerrando...", foreground="orange")
         if self.ser:
-            self.ser.close()
+            try:
+                self.ser.close()
+            except Exception:
+                pass
+        self.root.after(50, self._finalize_close)
+
+    def _finalize_close(self):
+        """Espera un instante a que el hilo serial termine y destruye la ventana."""
+        try:
+            if hasattr(self, 'serial_thread') and self.serial_thread.is_alive():
+                self.serial_thread.join(timeout=0.2)
+        except Exception:
+            pass
         self.root.destroy()
 
 

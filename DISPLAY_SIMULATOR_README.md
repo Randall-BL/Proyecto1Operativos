@@ -55,8 +55,9 @@ sensor simulate 80
 Deberías ver:
 - Panel encabezado: **CERRADO** (rojo)
 - Banner: **¡EMERGENCIA!**
-- Barco desaparece del canal
-- Reaparece en la cola
+- Barco desaparece del canal (el firmware lo marca como “congelado”)
+- Cuando la emergencia se limpia, el barco se restaura y reaparece en el canal
+	(log: `[EMERGENCY] Barco #X restaurado en casilla Y`)
 
 Después de ~5 segundos:
 - Panel: vuelve a **ABIERTO** (verde)
@@ -73,3 +74,16 @@ emergency clear
 - Si no conecta, verifica que el ESP32 esté en el puerto correcto
 - Los datos se leen en tiempo real desde el monitor serial
 - La visualización parsea logs automáticamente
+
+## Depuración (logs clave)
+
+Si ves un barco “pegado” o “fantasma”, revisa en el monitor serial si aparecen
+estos eventos (son los que el simulador usa para limpiar/mostrar el canal):
+
+- Emergencia / interrupción:
+	- `[EMERGENCY] Barco #X congelado en el canal` (debe desaparecer)
+	- `[EMERGENCY] Barco #X restaurado en casilla Y` (debe reaparecer)
+- Preempción (algoritmos apropiativos):
+	- `Preemption:` (el activo se quita del canal y se reencola)
+- Destrucción (caso límite):
+	- líneas que contengan `se destruye #X` (debe eliminarse del canal)

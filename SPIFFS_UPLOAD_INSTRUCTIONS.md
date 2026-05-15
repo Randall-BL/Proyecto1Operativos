@@ -24,7 +24,7 @@ cd d:\tec\2026\i sem\sistemasoperativos\Proyecto1Operativos\SchedulingShips
 # Ejecutar mklittlefs (reemplaza la ruta si descargaste en otra ubicación)
 & "C:\Users\YITAN\OneDrive\Escritorio\Proyecto1Operativos\mklittlefs\mklittlefs.exe" -c "data" -p 256 -b 4096 -s 0x160000 "littlefs.bin"
 ```
-& "C:\Users\YITAN\OneDrive\Escritorio\Proyecto1Operativos\mklittlefs\mklittlefs.exe" -c "SchedulingShips\data" -p 256 -b 4096 -s 0x160000 "littlefs_correct.bin"
+& "C:\Users\YITAN\OneDrive\Escritorio\Proyecto1Operativos\mklittlefs\mklittlefs.exe" -c "SchedulingShips\data" -p 256 -b 4096 -s 0x160000 "littlefs.bin"
 Esto genera `littlefs.bin` con tamaño de 0x160000 (1.4 MB aprox).
 
 #### Paso 3: Flashear con esptool
