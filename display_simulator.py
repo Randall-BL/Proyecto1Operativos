@@ -76,6 +76,9 @@ class SchedulingShipsDisplay:
         self.boat_slot_last_applied_ts_by_id = {}
         self.boat_move_period_ms_by_id = {}
 
+        # Barcos retirados temporalmente del canal por emergencia (interrupción)
+        self.emergency_parked_boats = set()
+
         # Largo real de la lista (slots) reportado por logs de boat task: list_len = totalSlots + 1
         self.list_length = None
 
@@ -246,6 +249,7 @@ class SchedulingShipsDisplay:
         self.boat_slot_last_applied_ts_by_id = {}
         self.boat_move_period_ms_by_id = {}
         self.list_length = None
+        self.emergency_parked_boats = set()
         self.state['completed_total'] = 0
         self.state['completed_lr'] = 0
         self.state['completed_rl'] = 0
@@ -615,6 +619,18 @@ class SchedulingShipsDisplay:
     def parse_line(self, line):
         """Parsea una línea del serial y actualiza estado"""
         try:
+            def _remove_crossings_for_boat(boat_id):
+                """Elimina cualquier cruce activo asociado a un barco (por seguridad)."""
+                if boat_id is None:
+                    return
+                try:
+                    boat_id = int(boat_id)
+                except Exception:
+                    return
+
+                # Elimina todas las instancias (pueden existir duplicados tras eventos/integración)
+                self.crossings = [c for c in self.crossings if int(c.get('boat_id', -1)) != boat_id]
+
             def _remove_from_channel_and_requeue(boat_id, front=True):
                 """Quita el barco del canal en el simulador y lo devuelve a la cola.
 
@@ -628,11 +644,8 @@ class SchedulingShipsDisplay:
                 except Exception:
                     return
 
-                # Detiene animación en canal
-                crossing = self.get_crossing(boat_id)
-                if crossing:
-                    crossing['active'] = False
-                    self.crossings = [item for item in self.crossings if item.get('active')]
+                # Detiene animación en canal (remueve todas las instancias por robustez)
+                _remove_crossings_for_boat(boat_id)
 
                 if self.state.get('active_boat') == boat_id:
                     self.state['active_boat'] = None
@@ -648,6 +661,75 @@ class SchedulingShipsDisplay:
                 boat_algorithm = self.boat_algorithm_by_id.get(boat_id, {}).get('algorithm', self.state.get('algorithm', 'FCFS'))
                 self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm, front=front)
 
+            def _park_boat_due_to_emergency(boat_id):
+                """Refleja 'congelado en el canal': en LCD desaparece durante la emergencia."""
+                if boat_id is None:
+                    return
+                try:
+                    boat_id = int(boat_id)
+                except Exception:
+                    return
+
+                self.emergency_parked_boats.add(boat_id)
+
+                # Desaparece del canal
+                _remove_crossings_for_boat(boat_id)
+
+                if self.state.get('active_boat') == boat_id:
+                    self.state['active_boat'] = None
+
+                # Limpia slots para que no reaparezca por backlog
+                self.boat_slot_by_id.pop(boat_id, None)
+                self.boat_slot_events_by_id.pop(boat_id, None)
+                self.boat_slot_last_applied_ts_by_id.pop(boat_id, None)
+
+            def _restore_boat_after_emergency(boat_id, restored_slot):
+                """Refleja 'restaurado en casilla': el barco vuelve a verse en el canal."""
+                if boat_id is None:
+                    return
+                try:
+                    boat_id = int(boat_id)
+                except Exception:
+                    return
+                try:
+                    restored_slot = int(restored_slot)
+                except Exception:
+                    restored_slot = None
+
+                # Asegura que no esté también en colas
+                self.remove_boat_from_queues(boat_id)
+
+                # Reactiva cruce (si no existía) para que se dibuje.
+                if self.get_crossing(boat_id) is None:
+                    boat_type = self.boat_type_by_id.get(boat_id)
+                    boat_origin = self.boat_origin_by_id.get(boat_id)
+                    boat_algorithm = self.boat_algorithm_by_id.get(boat_id, {}).get('algorithm', self.state.get('algorithm', 'FCFS'))
+                    now = time.time()
+                    duration_s = self.duration_for_boat_type(boat_type)
+                    direction = self.origin_to_direction(boat_origin)
+                    self.crossings.append({
+                        'boat_id': boat_id,
+                        'boat_type': boat_type,
+                        'boat_origin': boat_origin,
+                        'boat_algorithm': self.normalize_algorithm(boat_algorithm),
+                        'direction': direction,
+                        'start_ts': now,
+                        'duration_s': duration_s,
+                        'paused': False,
+                        'pause_progress': 0.0,
+                        'active': True,
+                        'pending': False,
+                    })
+
+                # Marca el slot restaurado si está disponible
+                if restored_slot is not None:
+                    self.boat_slot_by_id[boat_id] = restored_slot
+                    # Limpia cola de eventos viejos si existiera
+                    self.boat_slot_events_by_id.pop(boat_id, None)
+                    self.boat_slot_last_applied_ts_by_id.pop(boat_id, None)
+
+                self.emergency_parked_boats.discard(boat_id)
+
             # Detecta reinicio/reboot del ESP32
             if any(keyword in line.lower() for keyword in ['starting...', 'boot', 'reboot', 'reset', 'ets jul']):
                 self.clear_display_state()
@@ -658,6 +740,21 @@ class SchedulingShipsDisplay:
             if line.startswith("Preemption:"):
                 preempted_id = self.state.get('active_boat')
                 _remove_from_channel_and_requeue(preempted_id, front=True)
+                return
+
+            # Interrupción por emergencia: el firmware congela el barco y lo retira del canal.
+            # En la LCD desaparece (ShipDisplay.c omite emergencyParked), por lo que aquí también.
+            if "congelado en el canal" in line and "[EMERGENCY]" in line:
+                m = re.search(r'Barco\s*#(?P<id>\d+)', line)
+                if m:
+                    _park_boat_due_to_emergency(int(m.group('id')))
+                return
+
+            # Fin de interrupción: el firmware restaura el barco en una casilla.
+            if "restaurado en casilla" in line and "[EMERGENCY]" in line:
+                m = re.search(r'Barco\s*#(?P<id>\d+)\s+restaurado en casilla\s+(?P<slot>-?\d+)', line)
+                if m:
+                    _restore_boat_after_emergency(int(m.group('id')), int(m.group('slot')))
                 return
 
             # Si el firmware destruye un barco (por ejemplo, cola llena en emergencia),
@@ -790,19 +887,7 @@ class SchedulingShipsDisplay:
                 if match:
                     boat_id = int(match.group(1))
                     self.serial_queue.put(("log", f"[SIM DEBUG] Recolocando barco #{boat_id} en cola"))
-                    boat_origin = self.boat_origin_by_id.get(boat_id, 'left')
-                    boat_type = self.boat_type_by_id.get(boat_id)
-                    boat_algorithm = self.state.get('algorithm', 'FCFS')
-                    self.serial_queue.put(("log", f"[SIM DEBUG] Origen={boat_origin}, Tipo={boat_type}, Algo={boat_algorithm}"))
-                    self.add_boat_to_queue(boat_id, boat_origin, boat_type=boat_type, boat_algorithm=boat_algorithm)
-                    crossing = self.get_crossing(boat_id)
-                    if crossing:
-                        self.serial_queue.put(("log", f"[SIM DEBUG] Limpiando estado activo para barco #{boat_id}"))
-                        crossing['active'] = False
-                        self.crossings = [item for item in self.crossings if item.get('active')]
-                        self.state['active_boat'] = None
-                    else:
-                        self.serial_queue.put(("log", f"[SIM DEBUG] Barco #{boat_id} no es el activo"))
+                    _remove_from_channel_and_requeue(boat_id, front=False)
                 else:
                     self.serial_queue.put(("log", f"[SIM DEBUG] No se encontró 'Barco #' en línea: {line}"))
 
@@ -1115,6 +1200,6 @@ class SchedulingShipsDisplay:
 if __name__ == '__main__':
     root = tk.Tk()
     # Cambiar COM5 al puerto que uses (COM4, COM5, etc. en Windows, /dev/ttyUSB0 en Linux)
-    app = SchedulingShipsDisplay(root, port='/dev/ttyACM0', baudrate=115200)
+    app = SchedulingShipsDisplay(root, port='COM5', baudrate=115200)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     root.mainloop()
