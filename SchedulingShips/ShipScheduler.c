@@ -774,41 +774,19 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         currentSlot = newSlot;
         moveAccum = 0; // reinicia acumulador
         ship_logf("[BOAT TASK #%u] moved to slot %d\n", b->id, newSlot);
-        // Barco actualiza pantalla; ship_display_render gestiona el mutex internamente.
         ship_display_render_forced(s);
       } else {
-        // Si fallo con desiredSteps completos, intentar avanzar de a 1 casilla
-        // para no quedarse totalmente bloqueado cuando hay espacio parcial.
-        bool movedPartial = false;
-        if (desiredSteps > 1) {
-          for (uint8_t trySteps = desiredSteps - 1; trySteps >= 1; trySteps--) {
-            int16_t partialSlot = -1;
-            if (ship_scheduler_try_move_range(s, startReserve, trySteps, b, &partialSlot)) {
-              b->currentSlot = partialSlot;
-              currentSlot = partialSlot;
-              moveAccum = 0;
-              ship_logf("[BOAT TASK #%u] moved partial %u step(s) to slot %d\n", b->id, trySteps, partialSlot);
-              ship_display_render_forced(s);
-              movedPartial = true;
-              break;
-            }
-          }
-        }
-        if (!movedPartial) {
         ship_logf("[BOAT TASK #%u] blocked waiting for slot at startReserve=%d desiredSteps=%u\n", b->id, startReserve, desiredSteps);
         moveAccum = 0;
-        // Si estamos en RR, ceder voluntariamente el turno para que el
-        // scheduler intente arrancar a otro barco. Si no hay sucesor
-        // válido, el scheduler reanudará a este barco.
+        // En RR ceder el turno para que el scheduler rote al siguiente activo.
+        // El scheduler reanudara a este barco cuando el canal se despeje.
         if (gScheduler && gScheduler->algorithm == ALG_RR) {
           ship_scheduler_yield_active_for_rr(gScheduler, b);
-          // Pasar a estado pausado localmente hasta recibir NOTIF_CMD_RUN.
           running = false;
           b->allowedToMove = false;
           continue;
         }
         // En otros algoritmos nos quedamos esperando por SLOT_UPDATE.
-        }
       }
     }
   } 
@@ -1334,34 +1312,50 @@ static bool ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // 
 } // Fin de ship_scheduler_preempt_active_for_rr. 
 
 // Yield voluntario por parte del barco activo cuando queda bloqueado.
+// Implementa rotacion circular real: busca el siguiente activo en la lista
+// que pueda avanzar sus steps completos, garantizando que todos los activos
+// tengan oportunidad de correr (evita inanicion de barcos como #7).
 static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *boat) {
   if (!scheduler || scheduler->algorithm != ALG_RR || !boat) return;
   if (scheduler->emergencyMode != EMERGENCY_NONE) return;
   if (scheduler->activeBoat != boat) return; // Solo el primario puede ceder su turno.
 
-  // Determinar si existe un sucesor viable (activo distinto o candidato seguro)
-  bool hasWorkable = false;
+  // Encontrar la posicion actual del primario en la lista de activos.
+  int currentIdx = -1;
+  for (uint8_t i = 0; i < scheduler->activeCount; i++) {
+    if (scheduler->activeBoats[i] == boat) { currentIdx = (int)i; break; }
+  }
+
+  // Buscar el siguiente activo en rotacion circular que pueda avanzar sus steps.
+  Boat *successor = NULL;
   if (scheduler->activeCount > 1) {
-    // Verificar que el otro activo no está también bloqueado por este mismo barco.
-    // Si todos los activos se bloquean mutuamente, hasWorkable queda false.
-    for (uint8_t i = 0; i < scheduler->activeCount; i++) {
-      Boat *other = scheduler->activeBoats[i];
-      if (!other || other == boat) continue;
-      // Verificar si `other` puede avanzar al menos 1 casilla
-      if (other->currentSlot < 0) continue;
-      int dir = (other->origin == SIDE_LEFT) ? 1 : -1;
-      int nextSlot = other->currentSlot + dir;
-      if (nextSlot >= 0 && nextSlot < (int)scheduler->listLength) {
-        if (scheduler->slotOwner && scheduler->slotOwner[nextSlot] == 0) {
-          hasWorkable = true;
-          break;
-        }
-        // Si la siguiente casilla es del barco que hace yield, seguiría bloqueado.
-        // No cuenta como workable.
+    for (uint8_t offset = 1; offset < scheduler->activeCount; offset++) {
+      uint8_t idx = (uint8_t)((currentIdx + offset) % scheduler->activeCount);
+      Boat *candidate = scheduler->activeBoats[idx];
+      if (!candidate || candidate == boat || candidate->currentSlot < 0) continue;
+      // Verificar si el candidato puede avanzar al menos stepSize casillas.
+      int dir = (candidate->origin == SIDE_LEFT) ? 1 : -1;
+      int endIndex = (candidate->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+      int remSlots = (candidate->origin == SIDE_LEFT)
+                     ? (endIndex - candidate->currentSlot)
+                     : (candidate->currentSlot - endIndex);
+      if (remSlots <= 0) continue; // Ya en el final, no necesita moverse.
+      uint8_t need = (uint8_t)((remSlots < (int)candidate->stepSize) ? remSlots : candidate->stepSize);
+      bool canMove = true;
+      int checkSlot = candidate->currentSlot + dir;
+      for (uint8_t s = 0; s < need; s++) {
+        if (checkSlot < 0 || checkSlot >= (int)scheduler->listLength) { canMove = false; break; }
+        if (scheduler->slotOwner && scheduler->slotOwner[checkSlot] != 0
+            && scheduler->slotOwner[checkSlot] != candidate->id) { canMove = false; break; }
+        checkSlot += dir;
       }
+      if (canMove) { successor = candidate; break; }
     }
   }
-  if (!hasWorkable && scheduler->readyCount > 0) {
+
+  // Si ningun activo puede moverse, revisar si hay candidato seguro en la cola.
+  bool queueHasWorkable = false;
+  if (!successor && scheduler->readyCount > 0) {
     for (uint8_t ri = 0; ri < scheduler->readyCount; ri++) {
       Boat *cand = scheduler->readyQueue[ri];
       if (!cand) continue;
@@ -1371,26 +1365,27 @@ static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *b
         if (!active) continue;
         if (active->origin != cand->origin) { safe = false; break; }
         if (active->currentSlot >= 0) {
-          int dist = (cand->origin == SIDE_LEFT) ? (active->currentSlot - 0) : ((int)(scheduler->listLength - 1) - active->currentSlot);
+          int dist = (cand->origin == SIDE_LEFT)
+                     ? (active->currentSlot - 0)
+                     : ((int)(scheduler->listLength - 1) - active->currentSlot);
           if (dist < (int)cand->stepSize) { safe = false; break; }
         }
       }
-      if (safe) { hasWorkable = true; break; }
+      if (safe) { queueHasWorkable = true; break; }
     }
   }
 
-  if (!hasWorkable) {
-    // Deadlock: todos los activos se bloquean mutuamente.
-    // No ceder el turno — el movimiento parcial de a 1 casilla en boatTask
-    // se encargará de despejar el bloqueo. Solo reanudar al primario actual.
-    FLOW_LOG(scheduler, "[RR] Deadlock detectado entre activos; no cedo turno para barco #%u\n", boat->id);
+  if (!successor && !queueHasWorkable) {
+    // Canal bloqueado: ningun activo ni candidato puede avanzar ahora.
+    // Reanudar al primario actual para que siga intentando en el proximo tick.
+    FLOW_LOG(scheduler, "[RR] Canal bloqueado; no hay sucesor viable para barco #%u\n", boat->id);
     boat->allowedToMove = true;
     if (boat->taskHandle) safe_task_notify(boat->taskHandle, NOTIF_CMD_RUN);
     ship_scheduler_resume_active_quantum(scheduler);
     return;
   }
 
-  // Pausar este barco y congelar su quantum
+  // Pausar este barco y congelar su quantum.
   boat->allowedToMove = false;
   if (boat->taskHandle) {
     FLOW_LOG(scheduler, "[RR] Barco #%u cede voluntariamente por bloqueo\n", boat->id);
@@ -1398,27 +1393,27 @@ static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *b
   }
   ship_scheduler_freeze_active_quantum(scheduler);
 
-  // Intentar arrancar un sucesor desde la cola
-  if (scheduler->readyCount > 0 && ship_scheduler_start_next_boat(scheduler)) return;
-
-  // Fallback: si hay otro activo, promoverlo
-  if (scheduler->activeCount > 1) {
-    Boat *nextActive = scheduler->activeBoats[1];
-    if (nextActive) {
-      ship_scheduler_promote_active_to_front(scheduler, nextActive);
-      nextActive->allowedToMove = true;
-      if (nextActive->taskHandle) {
-        FLOW_LOG(scheduler, "[RR] Reanudando activo #%u tras yield\n", nextActive->id);
-        safe_task_notify(nextActive->taskHandle, NOTIF_CMD_RUN);
-        scheduler->activeQuantumAccumulatedMillis = 0; // Reinicia quantum para el nuevo primario.
-        ship_scheduler_resume_active_quantum(scheduler);
-      }
-      ship_scheduler_sync_rr_permissions(scheduler);
-      return;
+  // Si hay un sucesor activo viable, promoverlo al frente con quantum fresco.
+  if (successor) {
+    ship_scheduler_promote_active_to_front(scheduler, successor);
+    successor->allowedToMove = true;
+    if (successor->taskHandle) {
+      FLOW_LOG(scheduler, "[RR] Rotando a activo #%u tras yield de #%u\n", successor->id, boat->id);
+      safe_task_notify(successor->taskHandle, NOTIF_CMD_RUN);
+      scheduler->activeQuantumAccumulatedMillis = 0;
+      ship_scheduler_resume_active_quantum(scheduler);
     }
+    ship_scheduler_sync_rr_permissions(scheduler);
+    return;
   }
 
-  // Si no se pudo arrancar a nadie, reanudar al preempted (evita bloqueo)
+  // No hay activo viable pero si candidato en cola: intentar despacharlo.
+  if (queueHasWorkable && ship_scheduler_start_next_boat(scheduler)) {
+    ship_scheduler_sync_rr_permissions(scheduler);
+    return;
+  }
+
+  // Ultimo recurso: reanudar al primario pausado para evitar bloqueo total.
   if (scheduler->activeCount >= 1 && scheduler->activeBoat) {
     Boat *preemptedBoat = scheduler->activeBoat;
     preemptedBoat->allowedToMove = true;
@@ -1428,7 +1423,6 @@ static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *b
       ship_scheduler_resume_active_quantum(scheduler);
     }
     ship_scheduler_sync_rr_permissions(scheduler);
-    return;
   }
 }
 
@@ -1500,15 +1494,40 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
         return; // Se despacho un sucesor válido.
       }
 
-      if (scheduler->activeCount > 1) { // Fallback: rota a otro barco ya presente en el canal.
-        Boat *nextActive = scheduler->activeBoats[1];
+      if (scheduler->activeCount > 1) { // Fallback: rota circularmente al siguiente activo viable.
+        // Buscar el siguiente en rotacion circular (no siempre [1]) para evitar
+        // inanicion de barcos que llevan tiempo esperando su quantum.
+        Boat *nextActive = NULL;
+        for (uint8_t offset = 1; offset < scheduler->activeCount; offset++) {
+          uint8_t idx = offset % scheduler->activeCount; // El primario ya esta en [0] tras preempt.
+          Boat *candidate = scheduler->activeBoats[idx];
+          if (!candidate || candidate->currentSlot < 0) continue;
+          // Preferir el candidato que pueda avanzar sus steps completos.
+          int dir = (candidate->origin == SIDE_LEFT) ? 1 : -1;
+          int endIndex = (candidate->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+          int remSlots = (candidate->origin == SIDE_LEFT)
+                         ? (endIndex - candidate->currentSlot)
+                         : (candidate->currentSlot - endIndex);
+          if (remSlots <= 0) { nextActive = candidate; break; } // En el final, que termine.
+          uint8_t need = (uint8_t)((remSlots < (int)candidate->stepSize) ? remSlots : candidate->stepSize);
+          bool canMove = true;
+          int checkSlot = candidate->currentSlot + dir;
+          for (uint8_t s = 0; s < need; s++) {
+            if (checkSlot < 0 || checkSlot >= (int)scheduler->listLength) { canMove = false; break; }
+            if (scheduler->slotOwner && scheduler->slotOwner[checkSlot] != 0
+                && scheduler->slotOwner[checkSlot] != candidate->id) { canMove = false; break; }
+            checkSlot += dir;
+          }
+          if (canMove) { nextActive = candidate; break; }
+          if (!nextActive) nextActive = candidate; // Fallback: al menos rotar aunque este bloqueado.
+        }
         if (nextActive) {
           ship_scheduler_promote_active_to_front(scheduler, nextActive);
           nextActive->allowedToMove = true;
           if (nextActive->taskHandle) {
-            FLOW_LOG(scheduler, "[RR] Reanudando activo #%u tras cambio de quantum\n", nextActive->id);
+            FLOW_LOG(scheduler, "[RR] Rotando a activo #%u tras quantum\n", nextActive->id);
             safe_task_notify(nextActive->taskHandle, NOTIF_CMD_RUN);
-            scheduler->activeQuantumAccumulatedMillis = 0; // Reinicia quantum para el nuevo primario.
+            scheduler->activeQuantumAccumulatedMillis = 0;
             ship_scheduler_resume_active_quantum(scheduler);
           }
           ship_scheduler_sync_rr_permissions(scheduler);
