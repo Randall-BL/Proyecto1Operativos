@@ -162,7 +162,6 @@ static int findIndexForAlgoAndSide(ShipAlgo algo, Boat *readyQueue[], uint8_t re
  */
 bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, uint8_t steps, Boat *boat) {
   if (!scheduler || !boat || steps == 0) return false; // Punteros nulos = acceso invalido.
-  if (steps > 16) return false; // Guarda: el buffer taken[] tiene capacidad maxima de 16.
   if (scheduler->listLength == 0 || !scheduler->slotOwner) return false; // Canal no inicializado.
   // dir: +1 si el barco viaja de izq a der, -1 si viaja de der a izq.
   // Determina el sentido en que se numera el rango de casillas a reservar.
@@ -197,8 +196,13 @@ bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, 
 
   // Paso 2: intentar tomar los semaforos binarios de cada casilla (sin bloquear).
   idx = startIndex;
-  SemaphoreHandle_t taken[16]; // Buffer local en stack: guarda punteros a Queue_t tomados.
-  uint8_t takenCount = 0;      // Cuantos se han tomado exitosamente hasta ahora.
+  // Buffer dinamico en heap: capacidad igual a 'steps' para no imponer limite fijo.
+  SemaphoreHandle_t *taken = (SemaphoreHandle_t *)malloc(steps * sizeof(SemaphoreHandle_t));
+  if (!taken) { // malloc fallo: sin memoria suficiente para el buffer de rollback.
+    xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+    return false;
+  }
+  uint8_t takenCount = 0; // Cuantos se han tomado exitosamente hasta ahora.
   for (uint8_t s = 0; s < steps; s++) {
     // gSlotSemaphores[idx]: lee el puntero SemaphoreHandle_t de la posicion idx
     // en el array global, equivale a *(gSlotSemaphores + idx).
@@ -207,6 +211,7 @@ bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, 
       // Rollback: liberar todos los semaforos ya tomados en este intento.
       for (uint8_t t = 0; t < takenCount; t++) xSemaphoreGive(taken[t]);
       xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+      free(taken);
       return false;
     }
     // xSemaphoreTake(sem, 0): timeout=0 => no bloquear. Atomicamente decrementa
@@ -215,6 +220,7 @@ bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, 
       // Esta casilla ya esta bloqueada por otra tarea.
       for (uint8_t t = 0; t < takenCount; t++) xSemaphoreGive(taken[t]); // Rollback.
       xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+      free(taken);
       return false;
     }
     taken[takenCount++] = sem; // Guardar puntero al semaforo tomado para posible rollback.
@@ -235,6 +241,7 @@ bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, 
   // Las casillas quedan 'tomadas' por los semaforos binarios; el propietario
   // los liberara con xSemaphoreGive cuando salga de esas casillas.
   xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+  free(taken); // Buffer de rollback ya no es necesario: liberarlo antes de retornar.
   return true; // Rango reservado exitosamente.
 }
 
@@ -400,7 +407,6 @@ static void ship_scheduler_restore_parked_boats(ShipScheduler *scheduler) {
     if (savedSlot >= 0 && scheduler->listLength > 0 && scheduler->slotOwner) {
       // Intentar restaurar con el numero de casillas que usa el barco (stepSize).
       uint8_t slotsToRestore = (activeBoat->stepSize > 0) ? activeBoat->stepSize : 1;
-      if (slotsToRestore > 16) slotsToRestore = 16; // Cota del buffer interno de try_reserve_range.
       if (ship_scheduler_try_reserve_range(scheduler, (int)savedSlot, slotsToRestore, activeBoat)) {
         activeBoat->currentSlot = savedSlot; // Restaura la posicion del barco en el canal.
         FLOW_LOG(scheduler, "[EMERGENCY] Barco #%u restaurado en casilla %d (steps=%u)\n", activeBoat->id, savedSlot, slotsToRestore);
@@ -528,7 +534,6 @@ static bool queue_has_side(const ShipScheduler *scheduler, BoatSide side) {
  */
 static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startIndex, uint8_t steps, Boat *boat, int16_t *outNewSlot) {
   if (!scheduler || !boat || steps == 0) return false;
-  if (steps > 16) return false; // Guarda: el buffer acquiredSems[] tiene capacidad maxima de 16.
   if (scheduler->listLength == 0 || !scheduler->slotOwner) return false;
   if ((SemaphoreHandle_t)scheduler->channelSlotsGuard == NULL) return false;
 
@@ -570,8 +575,13 @@ static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startInd
 
   // Tomar los semaforos de TODAS las casillas nuevas (intermedias + destino) sin bloquear.
   // Si alguna falla, liberar las ya tomadas (rollback) y abortar.
-  SemaphoreHandle_t acquiredSems[16]; // Punteros a Queue_t tomadas; en el stack de esta funcion.
-  uint8_t acquiredCount = 0;          // Cuantas se han tomado exitosamente.
+  // Buffer dinamico en heap: capacidad igual a 'steps' para no imponer limite fijo.
+  SemaphoreHandle_t *acquiredSems = (SemaphoreHandle_t *)malloc(steps * sizeof(SemaphoreHandle_t));
+  if (!acquiredSems) { // malloc fallo: sin memoria disponible para el buffer de rollback.
+    xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+    return false;
+  }
+  uint8_t acquiredCount = 0; // Cuantas se han tomado exitosamente.
   idx = startReserve;
   for (uint8_t s = 0; s < steps; s++) {
     if ((uint16_t)idx != (uint16_t)currentIndex) { // No re-tomar el origen (ya lo tenemos).
@@ -580,6 +590,7 @@ static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startInd
         // No se pudo tomar esta casilla: rollback de todas las ya tomadas.
         for (uint8_t t = 0; t < acquiredCount; t++) xSemaphoreGive(acquiredSems[t]);
         xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+        free(acquiredSems);
         return false;
       }
       acquiredSems[acquiredCount++] = sem; // Guardar para posible rollback futuro.
@@ -608,6 +619,7 @@ static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startInd
   // idx == targetIndex: la casilla destino permanece bloqueada (semaforo=0, slotOwner=boat->id).
 
   xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard); // Liberar mutex del canal.
+  free(acquiredSems); // Buffer de rollback ya no es necesario: liberarlo antes de retornar.
 
   // Escribir la nueva posicion del barco a traves del puntero de salida.
   // *outNewSlot = targetIndex actualiza boat->currentSlot en el llamador.
