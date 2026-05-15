@@ -2,7 +2,7 @@ Plantilla usada para cada archivo de test:
 
 listlen 200
 visual 200
-flow fair
+flow tico
 flowlog on
 w 4
 signms 500

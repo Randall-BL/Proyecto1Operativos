@@ -6,6 +6,7 @@
 #include <stdio.h> // fopen para cargar channel_config.txt
 #include <freertos/semphr.h> // Semaphores and mutexes
 #include <string.h>
+#include <limits.h> // ULONG_MAX para comparaciones de servicio en SJF.
 
 #include "ShipIO.h" // Logging por Serial. 
 #include "ShipDisplay.h" // API de pantalla (para que cada barco pueda redibujar). 
@@ -76,6 +77,7 @@ static int findIndexForAlgoAndSide(ShipAlgo algo, Boat *readyQueue[], uint8_t re
 // adquieren sus semáforos. Si falla, libera cualquier semáforo tomado.
 bool ship_scheduler_try_reserve_range(ShipScheduler *scheduler, int startIndex, uint8_t steps, Boat *boat) {
   if (!scheduler || !boat || steps == 0) return false;
+  if (steps > 16) return false; // Guarda: el buffer taken[] tiene capacidad maxima de 16.
   if (scheduler->listLength == 0 || !scheduler->slotOwner) return false;
   int dir = (boat->origin == SIDE_LEFT) ? 1 : -1;
   int endIndex = startIndex + dir * ((int)steps - 1);
@@ -188,11 +190,21 @@ static void ship_scheduler_restore_parked_boats(ShipScheduler *scheduler) {
     activeBoat->emergencyParked = false;
     activeBoat->emergencySavedSlot = -1;
     if (savedSlot >= 0 && scheduler->listLength > 0 && scheduler->slotOwner) {
-      if (ship_scheduler_try_reserve_range(scheduler, (int)savedSlot, 1, activeBoat)) {
+      // Restaurar con stepSize casillas para que la reserva sea consistente
+      // con el tamano real que ocupa el barco al moverse.
+      uint8_t slotsToRestore = (activeBoat->stepSize > 0) ? activeBoat->stepSize : 1;
+      if (slotsToRestore > 16) slotsToRestore = 16;
+      if (ship_scheduler_try_reserve_range(scheduler, (int)savedSlot, slotsToRestore, activeBoat)) {
         activeBoat->currentSlot = savedSlot;
-        FLOW_LOG(scheduler, "[EMERGENCY] Barco #%u restaurado en casilla %d\n", activeBoat->id, savedSlot);
+        FLOW_LOG(scheduler, "[EMERGENCY] Barco #%u restaurado en casilla %d (steps=%u)\n", activeBoat->id, savedSlot, slotsToRestore);
       } else {
-        FLOW_LOG(scheduler, "[EMERGENCY] No se pudo restaurar casilla %d para barco #%u\n", savedSlot, activeBoat->id);
+        // Fallback: intentar con solo 1 casilla si el rango completo no esta libre.
+        if (ship_scheduler_try_reserve_range(scheduler, (int)savedSlot, 1, activeBoat)) {
+          activeBoat->currentSlot = savedSlot;
+          FLOW_LOG(scheduler, "[EMERGENCY] Barco #%u restaurado en casilla %d (fallback 1 slot)\n", activeBoat->id, savedSlot);
+        } else {
+          FLOW_LOG(scheduler, "[EMERGENCY] No se pudo restaurar casilla %d para barco #%u\n", savedSlot, activeBoat->id);
+        }
       }
     }
   }
@@ -247,6 +259,7 @@ static bool queue_has_side(const ShipScheduler *scheduler, BoatSide side) {
 
 static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startIndex, uint8_t steps, Boat *boat, int16_t *outNewSlot) {
   if (!scheduler || !boat || steps == 0) return false;
+  if (steps > 16) return false; // Guarda: el buffer acquiredSems[] tiene capacidad maxima de 16.
   if (scheduler->listLength == 0 || !scheduler->slotOwner) return false;
   if ((SemaphoreHandle_t)scheduler->channelSlotsGuard == NULL) return false;
 
@@ -265,6 +278,7 @@ static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startInd
     return false;
   }
 
+  // Verificar que todas las casillas del rango [startReserve..targetIndex] esten libres.
   int idx = startReserve;
   for (uint8_t s = 0; s < steps; s++) {
     if (scheduler->slotOwner[idx] != 0 && scheduler->slotOwner[idx] != boat->id) {
@@ -274,19 +288,46 @@ static bool ship_scheduler_try_move_range(ShipScheduler *scheduler, int startInd
     idx += dir;
   }
 
+  // Adquirir el semaforo de TODAS las casillas intermedias y la casilla destino
+  // ANTES de liberar el origen. Esto evita que otro barco se cuele entre medio
+  // (bug de adelantamiento): mientras el barco "viaja" por el rango, cada casilla
+  // que atraviesa queda bloqueada hasta que el origen se libera.
+  SemaphoreHandle_t acquiredSems[16]; // max steps razonable
+  uint8_t acquiredCount = 0;
+  idx = startReserve;
+  for (uint8_t s = 0; s < steps; s++) {
+    if ((uint16_t)idx != (uint16_t)currentIndex) { // El origen se libera despues; no tomarlo.
+      SemaphoreHandle_t sem = ship_scheduler_get_slot_semaphore((uint16_t)idx);
+      if (!sem || xSemaphoreTake(sem, 0) != pdTRUE) {
+        // No se pudo adquirir esta casilla: liberar las ya tomadas y abortar.
+        for (uint8_t t = 0; t < acquiredCount; t++) xSemaphoreGive(acquiredSems[t]);
+        xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
+        return false;
+      }
+      acquiredSems[acquiredCount++] = sem;
+      ship_scheduler_lock_slot_owner(scheduler, (uint16_t)idx, boat->id);
+    }
+    idx += dir;
+  }
+
+  // Ahora que todas las casillas del trayecto estan reservadas, liberar el origen.
   if (scheduler->slotOwner[currentIndex] == boat->id) {
     ship_scheduler_unlock_slot_owner(scheduler, (uint16_t)currentIndex);
     SemaphoreHandle_t currentSem = ship_scheduler_get_slot_semaphore((uint16_t)currentIndex);
     if (currentSem) xSemaphoreGive(currentSem);
   }
 
-  SemaphoreHandle_t targetSem = ship_scheduler_get_slot_semaphore((uint16_t)targetIndex);
-  if (!targetSem || xSemaphoreTake(targetSem, 0) != pdTRUE) {
-    xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
-    return false;
+  // Liberar las casillas intermedias (todas menos la destino): el barco ya no
+  // las ocupa fisicamente, solo ocupa su casilla final.
+  idx = startReserve;
+  for (uint8_t s = 0; s < steps - 1; s++) {
+    ship_scheduler_unlock_slot_owner(scheduler, (uint16_t)idx);
+    SemaphoreHandle_t sem = ship_scheduler_get_slot_semaphore((uint16_t)idx);
+    if (sem) xSemaphoreGive(sem);
+    idx += dir;
   }
+  // idx apunta ahora a targetIndex, que permanece bloqueado por este barco.
 
-  ship_scheduler_lock_slot_owner(scheduler, (uint16_t)targetIndex, boat->id);
   xSemaphoreGive((SemaphoreHandle_t)scheduler->channelSlotsGuard);
 
   if (outNewSlot) *outNewSlot = (int16_t)targetIndex;
@@ -302,7 +343,10 @@ static bool candidate_is_better(ShipAlgo algo, const Boat *candidate, const Boat
   }
 
   if (algo == ALG_SJF) { // SJF usa servicio total.
-    if (candidate->serviceMillis != best->serviceMillis) return candidate->serviceMillis < best->serviceMillis; // Menor servicio gana.
+    // Si un candidato no tiene serviceMillis calculado aun (placeholder 0), pierde contra cualquiera que si lo tenga.
+    unsigned long candSvc = candidate->serviceMillis > 0 ? candidate->serviceMillis : ULONG_MAX;
+    unsigned long bestSvc = best->serviceMillis > 0 ? best->serviceMillis : ULONG_MAX;
+    if (candSvc != bestSvc) return candSvc < bestSvc; // Menor servicio gana.
     return candidate->arrivalOrder < best->arrivalOrder; // Desempata por llegada.
   }
 
@@ -497,8 +541,10 @@ static void ship_scheduler_add_active(ShipScheduler *scheduler, Boat *boat) { //
 
 static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat) { // Quita barco activo.
   if (!scheduler || !boat || scheduler->activeCount == 0) return; // Valida estado.
+  int removedIndex = -1;
   for (uint8_t i = 0; i < scheduler->activeCount; i++) {
     if (scheduler->activeBoats[i] == boat) {
+      removedIndex = (int)i;
       for (uint8_t j = i + 1; j < scheduler->activeCount; j++) {
         scheduler->activeBoats[j - 1] = scheduler->activeBoats[j];
       }
@@ -508,11 +554,16 @@ static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat) {
     }
   }
     ship_scheduler_sync_primary_active(scheduler); // Actualiza activo primario.
-  // Ajustar rrTurnIndex para que no quede fuera de rango tras eliminar un barco.
-  if (scheduler->activeCount > 0 && scheduler->rrTurnIndex >= scheduler->activeCount) {
-    scheduler->rrTurnIndex = (uint8_t)(scheduler->activeCount - 1);
-  } else if (scheduler->activeCount == 0) {
+  // Ajustar rrTurnIndex correctamente segun donde cayo el barco eliminado.
+  if (scheduler->activeCount == 0) {
     scheduler->rrTurnIndex = 0;
+  } else if (removedIndex >= 0 && (int)scheduler->rrTurnIndex > removedIndex) {
+    // El barco eliminado estaba ANTES del indice actual: el array se comprimo,
+    // el indice apunta ahora al barco siguiente al que deberia.
+    scheduler->rrTurnIndex--;
+  } else if (scheduler->rrTurnIndex >= scheduler->activeCount) {
+    // Ajuste de seguridad: no dejar fuera de rango.
+    scheduler->rrTurnIndex = (uint8_t)(scheduler->activeCount - 1);
   }
 } // Fin de ship_scheduler_remove_active.
 
@@ -691,7 +742,13 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
   unsigned long moveAccum = 0;
   int totalSlotsToTravel = 0;
   int movesCount = 0;
-  bool serviceExpired = false; // Indica que el tiempo de servicio ya se agoto pero aun falta llegar visualmente al final.
+  // visualOnly: true cuando el tiempo de servicio ya se agoto pero el barco
+  // todavia no llego fisicamente al final del canal. En este estado el barco
+  // sigue moviendose casilla a casilla pero ya NO descuenta remainingMillis
+  // (que permanece en 1 para que el scheduler no lo finalize prematuramente).
+  // CRITICO: remainingMillis=1 se pone UNA SOLA VEZ al entrar en visualOnly y
+  // nunca vuelve a tocarse aqui; el scheduler es el unico que lo puede poner a 0.
+  bool visualOnly = false;
   ship_logf("[BOAT TASK] Barco #%u iniciada. serviceMillis=%lu\n", b->id, b->serviceMillis); // Depuracion: inicio de tarea.
   while (b->remainingMillis > 0) { // Mientras quede tiempo.
     uint32_t cmd = 0; // Comando recibido.
@@ -703,7 +760,14 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
       if (cmd == NOTIF_CMD_RUN) { // Si run, inicia.
         running = true; // Marca ejecucion activa.
         b->allowedToMove = true; // Permite avanzar.
-        lastTickAt = millis(); // Reinicia base temporal al arrancar.
+        // FIX #3: Resetear lastTickAt en CADA RUN, no solo en el primero.
+        // Si no se resetea, al reanudar tras una pausa (sensor u otro motivo)
+        // el 'elapsed' calculado incluye todo el tiempo de pausa y se descuenta
+        // erroneamente de remainingMillis. Esto afecta especialmente a EDF.
+        lastTickAt = millis(); // Reinicia base temporal en cada reanudacion.
+        // Si ya estamos en modo visual-only, garantizar que remainingMillis=1
+        // para que el scheduler no mate el barco en el proximo tick de update.
+        if (visualOnly && b->remainingMillis == 0) b->remainingMillis = 1;
         ship_logf("[BOAT TASK #%u] RUN recibido. running=true, lastTickAt=%lu, remainingMillis=%lu\n", b->id, lastTickAt, b->remainingMillis); // Depuracion: iniciando ejecucion.
         // Preparar parametros de movimiento en lista
         if (gScheduler) {
@@ -720,29 +784,53 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
             perMoveMs = b->serviceMillis;
           }
           dir = (b->origin == SIDE_LEFT) ? 1 : -1;
-          // Intenta reservar la casilla de entrada
+          // Intentar reservar la casilla de entrada SOLO si el barco no esta
+          // ya ubicado en el canal (regreso de preempcion: currentSlot >= 0).
           int entryIndex = (b->origin == SIDE_LEFT) ? 0 : (int)(s->listLength - 1);
-          ship_logf("[BOAT TASK #%u] movesCount=%d perMoveMs=%lu totalSlots=%d stepSize=%u\n", b->id, movesCount, perMoveMs, totalSlotsToTravel, b->stepSize);
-          while (b->remainingMillis > 0 && b->currentSlot < 0) {
-            if (ship_scheduler_try_reserve_range(s, entryIndex, 1, b)) {
-              b->currentSlot = entryIndex;
-              currentSlot = entryIndex;
-              break;
+          ship_logf("[BOAT TASK #%u] movesCount=%d perMoveMs=%lu totalSlots=%d stepSize=%u currentSlot=%d\n", b->id, movesCount, perMoveMs, totalSlotsToTravel, b->stepSize, b->currentSlot);
+          if (b->currentSlot < 0) { // Solo reservar entrada si aun no esta en el canal.
+            while (b->remainingMillis > 0 && b->currentSlot < 0) {
+              if (ship_scheduler_try_reserve_range(s, entryIndex, 1, b)) {
+                b->currentSlot = entryIndex;
+                currentSlot = entryIndex;
+                break;
+              }
+              // Espera hasta que haya cambio en los slots o reciba PAUSE/TERMINATE (sin busy-wait)
+              uint32_t innerCmd = 0;
+              xTaskNotifyWait(0x00, 0xFFFFFFFF, &innerCmd, portMAX_DELAY);
+              if (innerCmd == NOTIF_CMD_TERMINATE) break;
+              if (innerCmd == NOTIF_CMD_PAUSE) {
+                running = false;
+                b->allowedToMove = false;
+                break;
+              }
             }
-            // Espera hasta que haya cambio en los slots o reciba PAUSE/TERMINATE (sin busy-wait)
-            uint32_t innerCmd = 0;
-            xTaskNotifyWait(0x00, 0xFFFFFFFF, &innerCmd, portMAX_DELAY);
-            if (innerCmd == NOTIF_CMD_TERMINATE) break;
-            if (innerCmd == NOTIF_CMD_PAUSE) {
-              // Retroceder a estado pausado: permitirá reintentar al recibir RUN
-              running = false;
-              b->allowedToMove = false;
-              break;
+          } else {
+            // FIX #2: El barco ya esta en el canal (viene de preempcion o regreso
+            // de emergencia). Sincronizar currentSlot local Y recalcular perMoveMs
+            // desde remainingMillis actual, no desde serviceMillis original.
+            // Sin este recalculo, el barco se mueve a velocidad incorrecta despues
+            // de ser desalojado por STRN (el perMoveMs refleja el canal completo
+            // pero ahora solo le quedan N casillas proporcionales a remainingMillis).
+            currentSlot = b->currentSlot;
+            if (s->listLength > 1 && b->stepSize > 0) {
+              int endIdx = (b->origin == SIDE_LEFT) ? (int)(s->listLength - 1) : 0;
+              int remSlots = (b->origin == SIDE_LEFT)
+                             ? (endIdx - b->currentSlot)
+                             : (b->currentSlot - endIdx);
+              if (remSlots > 0) {
+                movesCount = (remSlots + (int)b->stepSize - 1) / (int)b->stepSize;
+                if (movesCount <= 0) movesCount = 1;
+                // Usar remainingMillis real si esta calculado (>1 es real; ==1 podria ser placeholder)
+                unsigned long baseMs = (b->remainingMillis > 1) ? b->remainingMillis : b->serviceMillis;
+                if (baseMs == 0) baseMs = ship_scheduler_estimate_service_millis(s, b);
+                perMoveMs = baseMs / (unsigned long)movesCount;
+                if (perMoveMs == 0) perMoveMs = 1;
+                ship_logf("[BOAT TASK #%u] Recalculo tras preempcion: remSlots=%d movesCount=%d perMoveMs=%lu remainingMillis=%lu\n",
+                          b->id, remSlots, movesCount, perMoveMs, b->remainingMillis);
+              }
             }
-            // Si fue NOTIF_CMD_SLOT_UPDATE o cualquier otro, reintenta reservar.
           }
-          // Dibuja una vez que consiguió la entrada.
-          ship_display_render_forced(s);
         }
       }
       continue; // Repite el ciclo.
@@ -751,55 +839,69 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
     const unsigned long slice = 50; // Subpaso interno. 
     bool interrupted = false; // Indica si se interrumpio el paso por pausa/termino. 
     xTaskNotifyWait(0x00, 0xFFFFFFFF, &cmd, pdMS_TO_TICKS(slice)); // Espera o recibe comando.
+
+    // Procesar comandos ANTES de descontar tiempo para que PAUSE/TERMINATE
+    // tengan efecto inmediato sin importar cuanto tiempo haya pasado.
+    if (cmd == NOTIF_CMD_TERMINATE) { // Si terminate. 
+      b->remainingMillis = 0; // Fuerza fin. 
+      running = false; // Detiene ejecucion. 
+      b->allowedToMove = false; // Bloquea movimiento. 
+      if (gScheduler) ship_display_render_forced(gScheduler); // Refresca para mostrar estado terminado.
+      break; // Sale del while principal para terminar la tarea. 
+    } 
+    if (cmd == NOTIF_CMD_PAUSE) { // Si pause.
+      ship_logf("[BOAT TASK #%u] PAUSE recibido. running=false, remainingMillis=%lu\n", b->id, b->remainingMillis); // Depuracion: pausa.
+      running = false; // Detiene ejecucion.
+      b->allowedToMove = false; // Bloquea movimiento.
+      interrupted = true; // Marca interrupcion.
+      moveAccum = 0; // FIX #11: Resetear acumulador para no moverse de inmediato al reanudar.
+      if (gScheduler) ship_display_render_forced(gScheduler); // Refresca para mostrar pausa.
+      continue; // Vuelve al inicio del bucle para esperar NOTIF_CMD_RUN nuevamente.
+    } 
+
     unsigned long now = millis(); // Marca temporal actual.
     unsigned long elapsed = now - lastTickAt; // Tiempo real transcurrido desde el ultimo descuento.
+    lastTickAt = now; // Actualiza base temporal.
 
-    if (elapsed > 0) { // Solo descuenta si hubo tiempo real.
-      if (elapsed >= b->remainingMillis) { // Si ya se agoto el tiempo.
-        b->remainingMillis = 0; // Fuerza a cero.
-        serviceExpired = true; // El reloj ya se consumo.
-      } else { // Si aun queda tiempo.
+    // Descontar tiempo de servicio solo si aun no expiro.
+    if (!visualOnly && elapsed > 0) {
+      if (elapsed >= b->remainingMillis) {
+        // Tiempo de servicio agotado: entrar en modo visual-only.
+        // Poner remainingMillis=1 UNA SOLA VEZ para mantener vivo el barco
+        // mientras recorre las casillas que le faltan visualmente.
+        // El scheduler detectara visualOnly=true y no finalizara el barco
+        // hasta que llegue al final del canal.
+        b->remainingMillis = 0;
+        if (b->currentSlot >= 0 && gScheduler) {
+          ShipScheduler *s = gScheduler;
+          int endIndex = (b->origin == SIDE_LEFT) ? (int)(s->listLength - 1) : 0;
+          bool needsVisual = (b->origin == SIDE_LEFT)
+                             ? (b->currentSlot < endIndex)
+                             : (b->currentSlot > endIndex);
+          if (needsVisual) {
+            visualOnly = true;
+            b->remainingMillis = 1; // Mantiene vivo; no se vuelve a tocar aqui.
+          }
+          // Si ya esta en el final, remainingMillis queda en 0 y el scheduler lo finalizara.
+        }
+      } else {
         b->remainingMillis -= elapsed; // Reduce por tiempo real transcurrido.
       }
-      lastTickAt = now; // Actualiza base temporal.
     }
+    // En modo visualOnly no tocamos remainingMillis: permanece en 1 hasta que
+    // el barco llegue al final y lo ponga a 0 el propio loop de movimiento.
 
-    if (serviceExpired && b->currentSlot >= 0 && gScheduler) { // Mantiene vivo el hilo hasta llegar al final visual.
-      ShipScheduler *s = gScheduler; // Toma scheduler actual.
-      int endIndex = (b->origin == SIDE_LEFT) ? (s->listLength - 1) : 0; // Ultima casilla segun origen.
-      if ((b->origin == SIDE_LEFT && b->currentSlot < endIndex) || (b->origin == SIDE_RIGHT && b->currentSlot > endIndex)) {
-        b->remainingMillis = 1; // Evita que el scheduler lo finalize antes de tiempo.
-      }
-    }
+    if (interrupted || !running) { // Si se interrumpio o quedo pausado. 
+      continue; // No acumula tiempo de movimiento. 
+    } 
 
-    // acumula para decidir mover de casilla cuando ocurra
-    if (running && b->allowedToMove && perMoveMs > 0 && b->currentSlot >= 0) {
+    // Acumula para decidir mover de casilla.
+    if (b->allowedToMove && perMoveMs > 0 && b->currentSlot >= 0) {
       moveAccum += elapsed;
     }
 
-      if (cmd == NOTIF_CMD_TERMINATE) { // Si terminate. 
-        b->remainingMillis = 0; // Fuerza fin. 
-        running = false; // Detiene ejecucion. 
-        b->allowedToMove = false; // Bloquea movimiento. 
-        interrupted = true; // Marca interrupcion. 
-        if (gScheduler) ship_display_render_forced(gScheduler); // Refresca para mostrar estado terminado.
-        break; // Sale del while principal para terminar la tarea. 
-      } 
-      if (cmd == NOTIF_CMD_PAUSE) { // Si pause.
-        ship_logf("[BOAT TASK #%u] PAUSE recibido. running=false, remainingMillis=%lu\n", b->id, b->remainingMillis); // Depuracion: pausa.
-        running = false; // Detiene ejecucion.
-        b->allowedToMove = false; // Bloquea movimiento.
-        interrupted = true; // Marca interrupcion.
-        if (gScheduler) ship_display_render_forced(gScheduler); // Refresca para mostrar pausa.
-        continue; // Vuelve al inicio del bucle para esperar NOTIF_CMD_RUN nuevamente.
-      } 
-
-    if (interrupted || !running) { // Si se interrumpio o quedo pausado. 
-      continue; // No descuenta tiempo restante. 
-    } 
-
     // Intentar mover cuando se acumulo suficiente tiempo
-    if (running && b->allowedToMove && b->currentSlot >= 0 && moveAccum >= perMoveMs) {
+    if (b->allowedToMove && b->currentSlot >= 0 && moveAccum >= perMoveMs) {
       ShipScheduler *s = gScheduler;
       if (s && s->algorithm == ALG_RR && s->activeBoat != b) {
         moveAccum = 0;
@@ -809,10 +911,10 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
       int endIndex = (b->origin == SIDE_LEFT) ? (s->listLength - 1) : 0;
       int remainingSlots = (b->origin == SIDE_LEFT) ? (s->listLength - 1 - slot) : (slot - 0);
       if (remainingSlots <= 0) {
-        // Llego al final; libera su casilla y termina
+        // Llego al final; libera su casilla y termina.
         ship_scheduler_release_range(s, slot, 1, b);
         b->currentSlot = -1;
-        b->remainingMillis = 0;
+        b->remainingMillis = 0; // Senaliza al scheduler que puede finalizarlo.
         break;
       }
 
@@ -823,7 +925,6 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
       ship_logf("[BOAT TASK #%u] desiredSteps=%u remainingSlots=%d startReserve=%d\n", b->id, desiredSteps, remainingSlots, startReserve);
 
       if (desiredSteps == 0) {
-        // nothing to move
         continue;
       }
 
@@ -839,7 +940,6 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
         ship_logf("[BOAT TASK #%u] blocked waiting for slot at startReserve=%d desiredSteps=%u\n", b->id, startReserve, desiredSteps);
         moveAccum = 0;
         // En RR ceder el turno para que el scheduler rote al siguiente activo.
-        // El scheduler reanudara a este barco cuando el canal se despeje.
         if (gScheduler && gScheduler->algorithm == ALG_RR) {
           ship_scheduler_yield_active_for_rr(gScheduler, b);
           running = false;
@@ -1079,7 +1179,12 @@ void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, 
 
   ship_logf("Barco agregado: #%u tipo=%s origen=%s\n", boat->id, boatTypeName(boat->type), boatSideName(boat->origin)); // Log detallado de alta. 
 
-  xTaskCreate(boatTask, "boat", 4096, boat, 1, &boat->taskHandle); // Crea la tarea del barco. 
+  // FIX #9: Crear la tarea ANTES de decidir si preemptar, pero el barco queda
+  // bloqueado en NOTIF_CMD_RUN hasta que el scheduler lo despache. La tarea
+  // en estado 'waiting' es inofensiva. Esto elimina la ventana de carrera
+  // en la que start_next_boat podia despachar el barco antes de que la tarea
+  // existiera al crearse en un punto posterior del flujo de preempcion.
+  xTaskCreate(boatTask, "boat", 4096, boat, 1, &boat->taskHandle); // Crea la tarea del barco.
 
   if (scheduler->activeCount == 0) { // Si el scheduler estaba vacio.
     ship_scheduler_start_next_boat(scheduler); // Arranca inmediatamente el primer barco en cola.
@@ -1087,7 +1192,9 @@ void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, 
   }
 
   if (scheduler->activeCount > 0 && scheduler->activeBoat) { // Si hay activo. 
-    if (scheduler->flowMode == FLOW_TICO) { // En TICO no preempta activos.
+    if (scheduler->flowMode == FLOW_TICO && scheduler->algorithm != ALG_RR) {
+      // En TICO puro (algoritmo no-RR) no se preempta: los barcos conviven en el
+      // canal controlados por reserva de casillas, no por quantum de tiempo.
       return; // Mantiene la ejecucion concurrente.
     }
     bool shouldPreempt = false; // Bandera de preempcion. 
@@ -1112,14 +1219,59 @@ void ship_scheduler_enqueue_with_deadline(ShipScheduler *scheduler, Boat *boat, 
       if (boat->priority > scheduler->activeBoat->priority) shouldPreempt = true; // Compara prioridad. 
     } 
 
-    if (shouldPreempt) { // Si se debe preemptar. 
-      ship_logf("Preemption: barco #%u solicita preemp.\n", boat->id); // Log de preempcion. 
-      if (scheduler->activeBoat->taskHandle) { // Si hay tarea activa. 
-        safe_task_notify(scheduler->activeBoat->taskHandle, NOTIF_CMD_PAUSE); // Envia pausa. 
-      } 
-      scheduler->activeBoat->allowedToMove = false; // Deja el barco estacionado en el canal. 
-      ship_scheduler_freeze_active_quantum(scheduler); // Congela el quantum agotado. 
-      ship_scheduler_start_next_boat(scheduler); // Intenta mover otro barco si hay uno elegible. 
+    if (shouldPreempt) { // Si se debe preemptar.
+      Boat *preempted = scheduler->activeBoat; // Barco que sera desalojado.
+      ship_logf("Preemption: barco #%u desaloja a #%u\n", boat->id, preempted->id); // Log de preempcion.
+
+      // 1. Detener la tarea del barco desalojado.
+      preempted->allowedToMove = false;
+      if (preempted->taskHandle) {
+        safe_task_notify(preempted->taskHandle, NOTIF_CMD_PAUSE);
+      }
+      ship_scheduler_freeze_active_quantum(scheduler);
+
+      // 2. Recalcular remainingMillis desde la posicion actual en el canal.
+      //    Esto es critico para STRN: el tiempo restante debe reflejar cuanto
+      //    camino le queda al barco en el canal, no el tiempo de reloj consumido.
+      if (preempted->currentSlot >= 0 && scheduler->listLength > 0 && preempted->serviceMillis > 0) {
+        int endIndex = (preempted->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+        int slotsRemaining = (preempted->origin == SIDE_LEFT)
+                             ? (endIndex - preempted->currentSlot)
+                             : (preempted->currentSlot - endIndex);
+        int totalSlots = (int)(scheduler->listLength - 1);
+        if (totalSlots > 0 && slotsRemaining >= 0) {
+          // Tiempo restante proporcional a las casillas que le quedan.
+          preempted->remainingMillis = (unsigned long)(
+            ((float)slotsRemaining / (float)totalSlots) * (float)preempted->serviceMillis + 0.5f);
+          if (preempted->remainingMillis == 0) preempted->remainingMillis = 1; // Al menos 1 para no finalizarlo.
+        }
+      }
+
+      // 3. Guardar la posicion actual en el canal y LIBERAR la casilla.
+      //    A diferencia de la emergencia del sensor (donde todo se detiene y nadie
+      //    puede avanzar), en preempcion el sucesor sigue moviendose en el mismo
+      //    sentido. Si no liberamos la casilla, el sucesor llega a ella y se bloquea
+      //    indefinidamente porque slotOwner[slot] sigue siendo el id del desalojado.
+      //    Al liberar: el sucesor puede pasar, y cuando el desalojado regrese,
+      //    start_next_boat intentara reservar su savedSlot; si el sucesor ya lo
+      //    paso, estara libre; si no, el desalojado esperara un tick mas en cola.
+      preempted->emergencySavedSlot = preempted->currentSlot; // Guarda slot para restauracion.
+      preempted->emergencyParked = true; // Marca como estacionado por preempcion.
+      if (preempted->currentSlot >= 0) {
+        ship_scheduler_release_range(scheduler, preempted->currentSlot, 1, preempted); // Libera la casilla.
+        preempted->currentSlot = -1; // El barco ya no esta fisicamente en el canal.
+      }
+
+      // 4. Quitar el barco de la lista de activos para que start_next_boat pueda
+      //    despachar al sucesor (el guard activeCount>0 lo bloquearia si no).
+      ship_scheduler_remove_active(scheduler, preempted);
+
+      // 5. Reencolarlo al frente para que sea el primero en regresar cuando
+      //    el sucesor termine o sea a su vez desalojado.
+      ship_scheduler_requeue_boat(scheduler, preempted, true);
+
+      // 6. Arrancar el barco que gano la preempcion.
+      ship_scheduler_start_next_boat(scheduler);
     } 
   } 
 } // Fin de ship_scheduler_enqueue_with_deadline.
@@ -1226,6 +1378,8 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   // En modo RR, evitar despachar (y reservar entrada) mientras el quantum
   // actual del primario no haya finalizado. Esto previene que un barco se
   // agregue al canal (currentSlot) pero sin permiso de movimiento.
+  // Aplica independientemente de flowMode (incluido TICO): el quantum de
+  // tiempo es responsabilidad exclusiva de RR, no del control de flujo.
   if (scheduler->algorithm == ALG_RR && scheduler->activeCount > 0 && scheduler->activeBoat && scheduler->activeBoat->allowedToMove) {
     unsigned long elapsed = ship_scheduler_get_active_elapsed_millis(scheduler);
     if (elapsed < scheduler->rrQuantumMillis) {
@@ -1268,17 +1422,63 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
   if (b->startedAt == 0) b->startedAt = millis(); // Marca inicio si aplica. 
   scheduler->crossingStartedAt = millis(); // Marca el inicio del cruce. 
 
-  // Antes de añadir como activo, intentar reservar la casilla de entrada.
+  // Intentar colocar el barco en el canal.
+  // Si viene de una preempcion tiene un slot guardado: intentar reservarlo.
+  // La casilla fue LIBERADA al desalojar (para que el sucesor no se bloqueara),
+  // por lo que ahora puede estar libre (sucesor ya paso) u ocupada (sucesor aun
+  // no llego). En el segundo caso se busca la primera casilla libre mas atrasada
+  // en el sentido de viaje del barco restaurado.
   if (scheduler->listLength > 0 && scheduler->slotOwner) {
-    int entryIndex = (b->origin == SIDE_LEFT) ? 0 : (int)(scheduler->listLength - 1);
-    if (!ship_scheduler_try_reserve_range(scheduler, entryIndex, 1, b)) {
-      FLOW_LOG(scheduler, "[DISPATCH] No se pudo reservar entrada para barco #%u, reencolando\n", b->id);
-      ship_scheduler_requeue_boat(scheduler, b, true); // Reencola el barco para reintento.
-      return false; // No inicia ahora.
+    if (b->emergencyParked && b->emergencySavedSlot >= 0) {
+      int dir = (b->origin == SIDE_LEFT) ? 1 : -1;
+      int endIndex = (b->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+      int savedSlot = (int)b->emergencySavedSlot;
+      bool restored = false;
+
+      // Intentar primero el slot exacto donde estaba.
+      if (ship_scheduler_try_reserve_range(scheduler, savedSlot, 1, b)) {
+        b->currentSlot = (int16_t)savedSlot;
+        restored = true;
+        FLOW_LOG(scheduler, "[DISPATCH] Barco #%u restaurado en casilla exacta %d\n", b->id, savedSlot);
+      } else {
+        // El sucesor aun ocupa esa casilla: retroceder hacia la entrada del barco
+        // buscando la primera casilla libre. "Retroceder" significa ir en direccion
+        // contraria al viaje (hacia el origen del barco), porque el sucesor ya
+        // esta adelante. Se limita la busqueda a listLength casillas como maximo.
+        int reverseDir = -dir; // Direccion contraria al viaje (hacia la entrada).
+        int searchSlot = savedSlot + reverseDir;
+        for (uint16_t tries = 0; tries < scheduler->listLength; tries++, searchSlot += reverseDir) {
+          if (searchSlot < 0 || searchSlot >= (int)scheduler->listLength) break;
+          if (ship_scheduler_try_reserve_range(scheduler, searchSlot, 1, b)) {
+            b->currentSlot = (int16_t)searchSlot;
+            restored = true;
+            FLOW_LOG(scheduler, "[DISPATCH] Barco #%u restaurado en casilla fallback %d (saved=%d ocupado)\n", b->id, searchSlot, savedSlot);
+            break;
+          }
+        }
+      }
+
+      b->emergencySavedSlot = -1;
+      b->emergencyParked = false;
+
+      if (!restored) {
+        // Ningun slot disponible: reenqueue para reintento en el proximo tick.
+        FLOW_LOG(scheduler, "[DISPATCH] No se pudo restaurar barco #%u, reencolando\n", b->id);
+        b->state = STATE_WAITING;
+        ship_scheduler_requeue_boat(scheduler, b, true);
+        return false;
+      }
+    } else {
+      // Barco nuevo: reservar la casilla de entrada.
+      int entryIndex = (b->origin == SIDE_LEFT) ? 0 : (int)(scheduler->listLength - 1);
+      if (!ship_scheduler_try_reserve_range(scheduler, entryIndex, 1, b)) {
+        FLOW_LOG(scheduler, "[DISPATCH] No se pudo reservar entrada para barco #%u, reencolando\n", b->id);
+        ship_scheduler_requeue_boat(scheduler, b, true); // Reencola el barco para reintento.
+        return false; // No inicia ahora.
+      }
+      b->currentSlot = entryIndex;
+      FLOW_LOG(scheduler, "[DISPATCH] Entrada reservada: barco #%u en casilla %d\n", b->id, entryIndex);
     }
-    // Reserva exitosa: marca currentSlot del barco.
-    b->currentSlot = entryIndex;
-    FLOW_LOG(scheduler, "[DISPATCH] Entrada reservada: barco #%u en casilla %d\n", b->id, entryIndex);
   }
 
   if (b->serviceMillis == 0) { // Calcula tiempos reales antes de notificar al hilo.
@@ -1286,6 +1486,28 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
     b->remainingMillis = b->serviceMillis; // Sincroniza restante.
     if (b->deadlineMillis == 0) { // Solo fijar deadline heurístico si no hay uno explícito.
       b->deadlineMillis = b->startedAt + (b->serviceMillis * 2UL); // Recalcula deadline heuristico.
+    }
+  }
+
+  // Si el barco fue restaurado desde preempcion (currentSlot >= 0 y serviceMillis ya
+  // calculado), recalcular remainingMillis proporcional a las casillas que quedan
+  // desde la casilla de restauracion real. Esto cubre tanto el caso del slot exacto
+  // como el fallback a una casilla mas atrasada.
+  if (b->currentSlot >= 0 && b->serviceMillis > 0 && scheduler->listLength > 1) {
+    int endIdx = (b->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+    int remSlots = (b->origin == SIDE_LEFT)
+                   ? (endIdx - (int)b->currentSlot)
+                   : ((int)b->currentSlot - endIdx);
+    int totalSlots = (int)(scheduler->listLength - 1);
+    if (remSlots > 0 && remSlots < totalSlots) {
+      // Solo recalcular si el barco no esta en la entrada (remSlots < totalSlots
+      // descarta barcos nuevos que empiezan desde la entrada con todo el canal).
+      unsigned long newRemaining = (unsigned long)(
+        ((float)remSlots / (float)totalSlots) * (float)b->serviceMillis + 0.5f);
+      if (newRemaining == 0) newRemaining = 1;
+      b->remainingMillis = newRemaining;
+      FLOW_LOG(scheduler, "[DISPATCH] Barco #%u remainingMillis recalculado=%lu desde slot=%d (remSlots=%d)\n",
+               b->id, b->remainingMillis, (int)b->currentSlot, remSlots);
     }
   }
 
@@ -1328,7 +1550,8 @@ static bool ship_scheduler_start_next_boat(ShipScheduler *scheduler) { // Selecc
 static bool ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // Preempcion por RR. 
   if (!scheduler || scheduler->activeCount == 0 || !scheduler->activeBoat) return false; // Valida activo. 
   if (scheduler->emergencyMode != EMERGENCY_NONE) return false; // Durante emergencia no rotamos ni despachamos.
-  if (scheduler->flowMode == FLOW_TICO) return false; // En TICO no se preempta.
+  // TICO controla seguridad de casillas; RR controla quantum de tiempo. Son ortogonales:
+  // no bloquear la preempcion por tiempo aunque TICO este activo.
   // Si no hay listos y solo un activo, nada que rotar.
   if (scheduler->readyCount == 0 && scheduler->activeCount <= 1) return false;
   // Solo preemptar si hay otro activo para promover o existe algun candidato listo
@@ -1460,14 +1683,18 @@ static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *b
   if (!chosen || chosen == boat) chosen = successor; // Fallback al que encontramos antes.
   if (chosen && chosen != boat) {
     ship_scheduler_promote_active_to_front(scheduler, chosen);
-    chosen->allowedToMove = true;
+    // FIX #1: sync_rr_permissions baja allowedToMove de todos los activos ANTES
+    // de que el elegido lo vuelva a subir. Esto garantiza que el barco saliente
+    // (boat, ya pausado arriba) no tenga allowedToMove=true residual cuando la
+    // tarea del entrante se despierta.
+    ship_scheduler_sync_rr_permissions(scheduler); // Primero bajar permisos de todos.
+    chosen->allowedToMove = true;                  // Luego subir solo al elegido.
     if (chosen->taskHandle) {
       FLOW_LOG(scheduler, "[RR] Rotando a activo #%u tras yield de #%u\n", chosen->id, boat->id);
       safe_task_notify(chosen->taskHandle, NOTIF_CMD_RUN);
       scheduler->activeQuantumAccumulatedMillis = 0;
       ship_scheduler_resume_active_quantum(scheduler);
     }
-    ship_scheduler_sync_rr_permissions(scheduler);
     return;
   }
 
@@ -1561,15 +1788,22 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
       if (scheduler->activeCount > 1) { // Fallback: rota al siguiente activo usando indice circular.
         Boat *nextActive = ship_scheduler_rr_next_active(scheduler);
         if (nextActive && nextActive != scheduler->activeBoat) {
+          // FIX #1: Pausar explicitamente al primario saliente ANTES de promover
+          // al entrante. Sin este paso, el barco saliente continua moviendose
+          // porque ya tenia allowedToMove=true y su tarea seguia en el tick de 50ms.
+          // preempt_active_for_rr ya pone allowedToMove=false y envia PAUSE al
+          // primario, asi que aqui solo necesitamos garantizar que sync_rr_permissions
+          // se llame ANTES de enviar RUN al sucesor para que el flag este actualizado
+          // cuando la tarea del sucesor despierte.
           ship_scheduler_promote_active_to_front(scheduler, nextActive);
-          nextActive->allowedToMove = true;
+          ship_scheduler_sync_rr_permissions(scheduler); // Primero bajar permisos de todos.
+          nextActive->allowedToMove = true;             // Luego subir solo al nuevo primario.
           if (nextActive->taskHandle) {
             FLOW_LOG(scheduler, "[RR] Rotando a activo #%u tras quantum\n", nextActive->id);
             safe_task_notify(nextActive->taskHandle, NOTIF_CMD_RUN);
             scheduler->activeQuantumAccumulatedMillis = 0;
             ship_scheduler_resume_active_quantum(scheduler);
           }
-          ship_scheduler_sync_rr_permissions(scheduler);
           return;
         }
       }
@@ -1596,6 +1830,75 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
   // Algoritmos no RR: ejecucion secuencial (un solo barco activo).
   if (scheduler->activeCount == 0 && scheduler->readyCount > 0) {
     ship_scheduler_start_next_boat(scheduler);
+    return;
+  }
+
+  // FIX #6: Re-evaluar preempcion periodica para STRN y EDF.
+  // La preempcion al encolar un barco nuevo solo cubre el caso en que un barco
+  // mas urgente LLEGA. Pero en STRN el activo va consumiendo remainingMillis y
+  // puede volverse mas largo que alguien ya en cola. En EDF, el tiempo que falta
+  // para el deadline de barcos en cola cambia con el reloj: un barco puede
+  // volverse mas urgente que el activo sin que haya llegado nadie nuevo.
+  if (scheduler->activeCount > 0 && scheduler->activeBoat && scheduler->readyCount > 0) {
+    if (scheduler->algorithm == ALG_STRN || scheduler->algorithm == ALG_EDF) {
+      bool shouldPreempt = false;
+      Boat *active = scheduler->activeBoat;
+
+      for (uint8_t ri = 0; ri < scheduler->readyCount; ri++) {
+        Boat *cand = scheduler->readyQueue[ri];
+        if (!cand) continue;
+        // No preemptar si el candidato tiene sentido opuesto al activo (colision).
+        if (cand->origin != active->origin) continue;
+
+        if (scheduler->algorithm == ALG_STRN) {
+          unsigned long candRem = (cand->remainingMillis > 1) ? cand->remainingMillis
+                                  : (cand->serviceMillis > 0 ? cand->serviceMillis
+                                  : ship_scheduler_estimate_service_millis(scheduler, cand));
+          unsigned long activeRem = (active->remainingMillis > 1) ? active->remainingMillis
+                                    : (active->serviceMillis > 0 ? active->serviceMillis
+                                    : ship_scheduler_estimate_service_millis(scheduler, active));
+          if (candRem < activeRem) { shouldPreempt = true; break; }
+        } else { // ALG_EDF
+          unsigned long now = millis();
+          unsigned long candTimeLeft = cand->deadlineMillis > now ? cand->deadlineMillis - now : 0UL;
+          unsigned long activeTimeLeft = active->deadlineMillis > now ? active->deadlineMillis - now : 0UL;
+          if (candTimeLeft < activeTimeLeft) { shouldPreempt = true; break; }
+        }
+      }
+
+      if (shouldPreempt && active->allowedToMove) {
+        FLOW_LOG(scheduler, "[PREEMPT PERIODIC] Desalojando activo #%u por candidato mas urgente en cola\n", active->id);
+        // Detener el activo.
+        active->allowedToMove = false;
+        if (active->taskHandle) safe_task_notify(active->taskHandle, NOTIF_CMD_PAUSE);
+        ship_scheduler_freeze_active_quantum(scheduler);
+        // Recalcular remainingMillis del desalojado por posicion en canal.
+        if (active->currentSlot >= 0 && scheduler->listLength > 0 && active->serviceMillis > 0) {
+          int endIndex = (active->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+          int slotsRemaining = (active->origin == SIDE_LEFT)
+                               ? (endIndex - active->currentSlot)
+                               : (active->currentSlot - endIndex);
+          int totalSlots = (int)(scheduler->listLength - 1);
+          if (totalSlots > 0 && slotsRemaining >= 0) {
+            active->remainingMillis = (unsigned long)(
+              ((float)slotsRemaining / (float)totalSlots) * (float)active->serviceMillis + 0.5f);
+            if (active->remainingMillis == 0) active->remainingMillis = 1;
+          }
+        }
+        // Guardar posicion, liberar casilla y estacionar.
+        // Igual que en la preempcion por enqueue: hay que liberar la casilla para
+        // que el sucesor no se bloquee al llegar a ella.
+        active->emergencySavedSlot = active->currentSlot;
+        active->emergencyParked = true;
+        if (active->currentSlot >= 0) {
+          ship_scheduler_release_range(scheduler, active->currentSlot, 1, active);
+          active->currentSlot = -1;
+        }
+        ship_scheduler_remove_active(scheduler, active);
+        ship_scheduler_requeue_boat(scheduler, active, false); // Al final, no al frente (otro ya era mas urgente).
+        ship_scheduler_start_next_boat(scheduler);
+      }
+    }
   }
 } // Fin de ship_scheduler_update. 
 
