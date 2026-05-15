@@ -1250,23 +1250,42 @@ class SchedulingShipsDisplay:
             })
 
         # Dibuja todos los barcos en la misma línea central, sin desplazamiento vertical.
-        # Antes de dibujar, resolver solapamientos horizontales: se ordena por x natural y se
-        # empuja hacia adelante cualquier barco que colisionaría con el anterior.
-        min_gap = self.boat_width + 1  # separacion minima entre centros (px logicos)
-        draw_items_sorted = sorted(draw_items, key=lambda it: it['x'])
-        placed_xs = []  # centros x ya colocados en este frame
+        # Anti-overlap: se preserva el orden fisico real (pos = effective_for_sort).
+        # Invariante: el barco visualmente mas adelantado SIEMPRE tiene mayor pos.
+        # Para LR: leading = pos mayor = x mayor. El barco trailing se empuja IZQUIERDA (atras).
+        # Para RL: leading = pos mayor = x menor. El barco trailing se empuja DERECHA (atras).
+        # Esto evita el bug de intercambio visual cuando dos barcos tienen x cercano pero
+        # el algoritmo de push los colocaba en orden incorrecto al empujar siempre a la derecha.
+        min_gap = self.boat_width + 1
 
-        for item in draw_items_sorted:
+        def _adjust_positions(items, direction):
+            """Ajusta x de trailing boats hacia atras para evitar solapamiento sin intercambiar orden."""
+            if not items:
+                return
+            # Leading first: mayor pos = mas avanzado fisicamente en el canal.
+            items_sorted = sorted(items, key=lambda it: it['pos'], reverse=True)
+            placed = []  # lista de x ya fijados (en orden leading->trailing)
+            for item in items_sorted:
+                x = item['x']
+                for px in placed:
+                    if abs(x - px) < min_gap:
+                        if direction == 'LR':
+                            x = px - min_gap  # trailing LR: retroceder hacia la izquierda
+                        else:
+                            x = px + min_gap  # trailing RL: retroceder hacia la derecha
+                placed.append(x)
+                item['x'] = x  # actualiza la x definitiva en el item
+
+        lr_items = [it for it in draw_items if it['crossing'].get('direction') != 'RL']
+        rl_items = [it for it in draw_items if it['crossing'].get('direction') == 'RL']
+        _adjust_positions(lr_items, 'LR')
+        _adjust_positions(rl_items, 'RL')
+
+        for item in draw_items:
             x = item['x']
             y = item['y']
             fill_color = item['fill_color']
             crossing = item['crossing']
-
-            # Si este barco solaparía con alguno ya colocado, lo desplaza al primer hueco libre.
-            for px in sorted(placed_xs):
-                if abs(x - px) < min_gap:
-                    x = px + min_gap
-            placed_xs.append(x)
 
             self.canvas.create_rectangle(
                 sx(x - self.boat_width / 2),
