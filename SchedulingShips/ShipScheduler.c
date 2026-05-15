@@ -821,11 +821,28 @@ static void boatTask(void *pv) { // Tarea FreeRTOS que ejecuta un barco.
               if (remSlots > 0) {
                 movesCount = (remSlots + (int)b->stepSize - 1) / (int)b->stepSize;
                 if (movesCount <= 0) movesCount = 1;
-                // Usar remainingMillis real si esta calculado (>1 es real; ==1 podria ser placeholder)
-                unsigned long baseMs = (b->remainingMillis > 1) ? b->remainingMillis : b->serviceMillis;
-                if (baseMs == 0) baseMs = ship_scheduler_estimate_service_millis(s, b);
-                perMoveMs = baseMs / (unsigned long)movesCount;
-                if (perMoveMs == 0) perMoveMs = 1;
+                // En RR la velocidad del barco es siempre constante: serviceMillis / totalMoves.
+                // NO recalcular desde remainingMillis porque:
+                //   - Si remainingMillis es muy pequeno (rushea): perMoveMs minusculo, quantum no interrumpe.
+                //   - Si remainingMillis==1 (visualOnly): baseMs=serviceMillis, perMoveMs=serviceMillis/remMoves
+                //     que puede ser MUY GRANDE (ej. 6600/6=1100ms > quantum=1000ms) → barco congelado para siempre.
+                // Para otros algoritmos (STRN, EDF) si importa el recalculo proporcional.
+                if (s->algorithm == ALG_RR && totalSlotsToTravel > 0 && b->stepSize > 0) {
+                  int originalMoves = ((int)totalSlotsToTravel + (int)b->stepSize - 1) / (int)b->stepSize;
+                  if (originalMoves > 0) {
+                    perMoveMs = b->serviceMillis / (unsigned long)originalMoves;
+                    if (perMoveMs == 0) perMoveMs = 1;
+                  } else {
+                    perMoveMs = b->serviceMillis;
+                    if (perMoveMs == 0) perMoveMs = 1;
+                  }
+                } else {
+                  // Algoritmos no-RR: recalculo proporcional normal.
+                  unsigned long baseMs = (b->remainingMillis > 1) ? b->remainingMillis : b->serviceMillis;
+                  if (baseMs == 0) baseMs = ship_scheduler_estimate_service_millis(s, b);
+                  perMoveMs = baseMs / (unsigned long)movesCount;
+                  if (perMoveMs == 0) perMoveMs = 1;
+                }
                 ship_logf("[BOAT TASK #%u] Recalculo tras preempcion: remSlots=%d movesCount=%d perMoveMs=%lu remainingMillis=%lu\n",
                           b->id, remSlots, movesCount, perMoveMs, b->remainingMillis);
               }
@@ -1579,9 +1596,10 @@ static bool ship_scheduler_preempt_active_for_rr(ShipScheduler *scheduler) { // 
   }
   if (!hasWorkable) return false; // No hay quien pueda correr ahora, no preemptar.
   if (!scheduler->activeBoat->allowedToMove) return false; // Ya esta pausado; no repetir la preempcion.
-  // Si el barco activo está en modo "visual post-servicio" (remainingMillis==1),
-  // no preemptar: necesita terminar de llegar al final del canal sin interrupciones.
-  if (scheduler->activeBoat->remainingMillis == 1) return false;
+  // En RR, el modo visual-only (remainingMillis==1) NO exime al barco de preempcion:
+  // el barco debe ceder su quantum como cualquier otro para no bloquear a los demas.
+  // En otros algoritmos (STRN, EDF) la preempcion por desalojo se maneja aparte y
+  // visualOnly si necesita proteccion; pero la funcion actual solo aplica a RR.
   if (ship_scheduler_get_active_elapsed_millis(scheduler) < scheduler->rrQuantumMillis) return false; // Si no consume quantum, sale. 
 
   Boat *preempted = scheduler->activeBoat; // Activo primario que consumio su quantum.
@@ -1662,9 +1680,12 @@ static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *b
   if (!successor && !queueHasWorkable) {
     // Canal bloqueado: ningun activo ni candidato puede avanzar ahora.
     // Reanudar al primario actual para que siga intentando en el proximo tick.
+    // CRITICO: resetear accumulated para que el barco tenga un quantum completo
+    // antes de ser preemptado de nuevo (evita loop PAUSE/RUN/PAUSE/RUN).
     FLOW_LOG(scheduler, "[RR] Canal bloqueado; no hay sucesor viable para barco #%u\n", boat->id);
     boat->allowedToMove = true;
     if (boat->taskHandle) safe_task_notify(boat->taskHandle, NOTIF_CMD_RUN);
+    scheduler->activeQuantumAccumulatedMillis = 0;
     ship_scheduler_resume_active_quantum(scheduler);
     return;
   }
@@ -1778,23 +1799,15 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
     if (scheduler->emergencyMode != EMERGENCY_NONE) return; // Mientras dura la emergencia no avanzamos RR.
     bool preempted = ship_scheduler_preempt_active_for_rr(scheduler); // Detecta si el quantum se agotó.
     if (preempted) { // Si ya se pausa el actual, intenta mover otro barco.
-      bool started = false;
-      if (scheduler->readyCount > 0) started = ship_scheduler_start_next_boat(scheduler);
-      if (started) {
-        ship_scheduler_sync_rr_permissions(scheduler); // Garantiza que solo el nuevo primario avance.
-        return; // Se despacho un sucesor válido.
-      }
-
-      if (scheduler->activeCount > 1) { // Fallback: rota al siguiente activo usando indice circular.
+      // PRIORIDAD 1: Rotar entre los activos ya en el canal.
+      // Si se despacha un barco nuevo de readyQueue ANTES de rotar, sync_rr_permissions
+      // pausa a todos los activos existentes y solo el recien despachado corre. Esto hace
+      // que los barcos ya en el canal nunca vuelvan a recibir su quantum (se quedan quietos).
+      // La correccion: rotar primero entre activos; solo despachar de la cola si no hay
+      // nadie mas con quien rotar.
+      if (scheduler->activeCount > 1) {
         Boat *nextActive = ship_scheduler_rr_next_active(scheduler);
         if (nextActive && nextActive != scheduler->activeBoat) {
-          // FIX #1: Pausar explicitamente al primario saliente ANTES de promover
-          // al entrante. Sin este paso, el barco saliente continua moviendose
-          // porque ya tenia allowedToMove=true y su tarea seguia en el tick de 50ms.
-          // preempt_active_for_rr ya pone allowedToMove=false y envia PAUSE al
-          // primario, asi que aqui solo necesitamos garantizar que sync_rr_permissions
-          // se llame ANTES de enviar RUN al sucesor para que el flag este actualizado
-          // cuando la tarea del sucesor despierte.
           ship_scheduler_promote_active_to_front(scheduler, nextActive);
           ship_scheduler_sync_rr_permissions(scheduler); // Primero bajar permisos de todos.
           nextActive->allowedToMove = true;             // Luego subir solo al nuevo primario.
@@ -1808,13 +1821,25 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
         }
       }
 
+      // PRIORIDAD 2: Solo un activo (o ninguno rotable); intentar despachar de la cola.
+      bool started = false;
+      if (scheduler->readyCount > 0) started = ship_scheduler_start_next_boat(scheduler);
+      if (started) {
+        ship_scheduler_sync_rr_permissions(scheduler); // Garantiza que solo el nuevo primario avance.
+        return; // Se despacho un sucesor válido.
+      }
+
       // Ningun sucesor valido ni otro activo: reanudar al preempted (evita quedarse bloqueado).
+      // CRITICO: resetear accumulated a 0 antes de resume. Si no, get_active_elapsed devuelve
+      // el quantum anterior (>=1000ms) y preempt_active_for_rr vuelve a disparar en el
+      // proximo tick (50ms despues), creando un loop PAUSE/RUN/PAUSE/RUN que congela al barco.
       if (scheduler->activeCount >= 1 && scheduler->activeBoat) {
         Boat *preemptedBoat = scheduler->activeBoat;
         preemptedBoat->allowedToMove = true;
         if (preemptedBoat->taskHandle) {
           FLOW_LOG(scheduler, "[RR] No hay sucesor valido; reanudando activo #%u\n", preemptedBoat->id);
           safe_task_notify(preemptedBoat->taskHandle, NOTIF_CMD_RUN);
+          scheduler->activeQuantumAccumulatedMillis = 0;
           ship_scheduler_resume_active_quantum(scheduler);
         }
         ship_scheduler_sync_rr_permissions(scheduler);

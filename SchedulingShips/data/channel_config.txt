@@ -1,10 +1,10 @@
 Plantilla usada para cada archivo de test:
 
-listlen 200
-visual 200
+listlen 400
+visual 400
 flow tico
 flowlog on
-w 4
+w 2
 signms 500
 sign r
 proxpin 23 22
@@ -13,7 +13,7 @@ sensor activate
 sensor threshold 10
 readymax 40
 alg rr
-quantum 1000
+quantum 3000
 step n 2
 step p 4
 step u 8
