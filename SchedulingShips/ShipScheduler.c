@@ -418,6 +418,57 @@ static void ship_scheduler_reset_active_quantum(ShipScheduler *scheduler) {
   scheduler->activeQuantumStartedAt = 0;
 }
 
+// Avanza el indice circular RR al siguiente activo y devuelve el barco elegido.
+// Si ningun activo puede avanzar sus steps completos, devuelve el siguiente en
+// orden circular de todas formas (fallback) para no bloquear la rotacion.
+static Boat *ship_scheduler_rr_next_active(ShipScheduler *scheduler) {
+  if (!scheduler || scheduler->activeCount == 0) return NULL;
+  if (scheduler->activeCount == 1) {
+    scheduler->rrTurnIndex = 0;
+    return scheduler->activeBoats[0];
+  }
+  // Buscar desde el siguiente al actual en orden circular.
+  uint8_t start = (uint8_t)((scheduler->rrTurnIndex + 1) % scheduler->activeCount);
+  Boat *fallback = NULL;
+  for (uint8_t offset = 0; offset < scheduler->activeCount; offset++) {
+    uint8_t idx = (uint8_t)((start + offset) % scheduler->activeCount);
+    Boat *candidate = scheduler->activeBoats[idx];
+    if (!candidate || candidate->currentSlot < 0) continue;
+    if (!fallback) fallback = candidate; // Primer candidato como respaldo.
+    // Verificar si puede avanzar sus steps completos.
+    int dir = (candidate->origin == SIDE_LEFT) ? 1 : -1;
+    int endIndex = (candidate->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
+    int remSlots = (candidate->origin == SIDE_LEFT)
+                   ? (endIndex - candidate->currentSlot)
+                   : (candidate->currentSlot - endIndex);
+    if (remSlots <= 0) {
+      // Barco en el final: que reciba el turno para terminar.
+      scheduler->rrTurnIndex = idx;
+      return candidate;
+    }
+    uint8_t need = (uint8_t)((remSlots < (int)candidate->stepSize) ? remSlots : candidate->stepSize);
+    bool canMove = true;
+    int checkSlot = candidate->currentSlot + dir;
+    for (uint8_t s = 0; s < need; s++) {
+      if (checkSlot < 0 || checkSlot >= (int)scheduler->listLength) { canMove = false; break; }
+      if (scheduler->slotOwner && scheduler->slotOwner[checkSlot] != 0
+          && scheduler->slotOwner[checkSlot] != candidate->id) { canMove = false; break; }
+      checkSlot += dir;
+    }
+    if (canMove) {
+      scheduler->rrTurnIndex = idx;
+      return candidate;
+    }
+  }
+  // Ninguno puede avanzar ahora: rotar al siguiente de todas formas (fallback).
+  if (fallback) {
+    for (uint8_t idx = 0; idx < scheduler->activeCount; idx++) {
+      if (scheduler->activeBoats[idx] == fallback) { scheduler->rrTurnIndex = idx; break; }
+    }
+  }
+  return fallback;
+}
+
 static void ship_scheduler_freeze_active_quantum(ShipScheduler *scheduler) {
   if (!scheduler) return;
   if (scheduler->activeQuantumStartedAt > 0) {
@@ -439,6 +490,9 @@ static void ship_scheduler_add_active(ShipScheduler *scheduler, Boat *boat) { //
   if (scheduler->activeCount >= MAX_BOATS) return; // Evita overflow.
   scheduler->activeBoats[scheduler->activeCount++] = boat; // Agrega al final.
   ship_scheduler_sync_primary_active(scheduler); // Actualiza activo primario.
+  // El nuevo barco entra al final; el rrTurnIndex apuntara a el en el proximo turno
+  // si se inserta antes del indice actual. No es necesario ajustar aqui porque
+  // ship_scheduler_rr_next_active siempre avanza desde rrTurnIndex+1.
 } // Fin de ship_scheduler_add_active.
 
 static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat) { // Quita barco activo.
@@ -453,7 +507,13 @@ static void ship_scheduler_remove_active(ShipScheduler *scheduler, Boat *boat) {
       break;
     }
   }
-    ship_scheduler_sync_primary_active(scheduler); // Actualiza activo primario. 
+    ship_scheduler_sync_primary_active(scheduler); // Actualiza activo primario.
+  // Ajustar rrTurnIndex para que no quede fuera de rango tras eliminar un barco.
+  if (scheduler->activeCount > 0 && scheduler->rrTurnIndex >= scheduler->activeCount) {
+    scheduler->rrTurnIndex = (uint8_t)(scheduler->activeCount - 1);
+  } else if (scheduler->activeCount == 0) {
+    scheduler->rrTurnIndex = 0;
+  }
 } // Fin de ship_scheduler_remove_active.
 
 static bool ship_scheduler_is_tico_safe(const ShipScheduler *scheduler, const Boat *candidate) { // Evalua seguridad TICO.
@@ -897,6 +957,7 @@ void ship_scheduler_clear(ShipScheduler *scheduler) { // Limpia colas y tareas.
   scheduler->completionCount = 0; // Resetea orden final. 
   scheduler->crossingStartedAt = 0; // Resetea tiempo de cruce. 
   scheduler->activeQuantumAccumulatedMillis = 0; // Resetea quantum acumulado.
+  scheduler->rrTurnIndex = 0; // Resetea indice circular RR.
   scheduler->fairnessPassedInWindow = 0; // Resetea ventana de equidad.
   scheduler->signLastSwitchAt = millis(); // Reinicia reloj de letrero.
   // Liberar estructura de slots si existe
@@ -1393,13 +1454,16 @@ static void ship_scheduler_yield_active_for_rr(ShipScheduler *scheduler, Boat *b
   }
   ship_scheduler_freeze_active_quantum(scheduler);
 
-  // Si hay un sucesor activo viable, promoverlo al frente con quantum fresco.
-  if (successor) {
-    ship_scheduler_promote_active_to_front(scheduler, successor);
-    successor->allowedToMove = true;
-    if (successor->taskHandle) {
-      FLOW_LOG(scheduler, "[RR] Rotando a activo #%u tras yield de #%u\n", successor->id, boat->id);
-      safe_task_notify(successor->taskHandle, NOTIF_CMD_RUN);
+  // Usar el indice circular para elegir al sucesor activo de forma equitativa.
+  // ship_scheduler_rr_next_active ya actualiza rrTurnIndex correctamente.
+  Boat *chosen = ship_scheduler_rr_next_active(scheduler);
+  if (!chosen || chosen == boat) chosen = successor; // Fallback al que encontramos antes.
+  if (chosen && chosen != boat) {
+    ship_scheduler_promote_active_to_front(scheduler, chosen);
+    chosen->allowedToMove = true;
+    if (chosen->taskHandle) {
+      FLOW_LOG(scheduler, "[RR] Rotando a activo #%u tras yield de #%u\n", chosen->id, boat->id);
+      safe_task_notify(chosen->taskHandle, NOTIF_CMD_RUN);
       scheduler->activeQuantumAccumulatedMillis = 0;
       ship_scheduler_resume_active_quantum(scheduler);
     }
@@ -1494,34 +1558,9 @@ void ship_scheduler_update(ShipScheduler *scheduler) { // Ejecuta un tick de pla
         return; // Se despacho un sucesor válido.
       }
 
-      if (scheduler->activeCount > 1) { // Fallback: rota circularmente al siguiente activo viable.
-        // Buscar el siguiente en rotacion circular (no siempre [1]) para evitar
-        // inanicion de barcos que llevan tiempo esperando su quantum.
-        Boat *nextActive = NULL;
-        for (uint8_t offset = 1; offset < scheduler->activeCount; offset++) {
-          uint8_t idx = offset % scheduler->activeCount; // El primario ya esta en [0] tras preempt.
-          Boat *candidate = scheduler->activeBoats[idx];
-          if (!candidate || candidate->currentSlot < 0) continue;
-          // Preferir el candidato que pueda avanzar sus steps completos.
-          int dir = (candidate->origin == SIDE_LEFT) ? 1 : -1;
-          int endIndex = (candidate->origin == SIDE_LEFT) ? (int)(scheduler->listLength - 1) : 0;
-          int remSlots = (candidate->origin == SIDE_LEFT)
-                         ? (endIndex - candidate->currentSlot)
-                         : (candidate->currentSlot - endIndex);
-          if (remSlots <= 0) { nextActive = candidate; break; } // En el final, que termine.
-          uint8_t need = (uint8_t)((remSlots < (int)candidate->stepSize) ? remSlots : candidate->stepSize);
-          bool canMove = true;
-          int checkSlot = candidate->currentSlot + dir;
-          for (uint8_t s = 0; s < need; s++) {
-            if (checkSlot < 0 || checkSlot >= (int)scheduler->listLength) { canMove = false; break; }
-            if (scheduler->slotOwner && scheduler->slotOwner[checkSlot] != 0
-                && scheduler->slotOwner[checkSlot] != candidate->id) { canMove = false; break; }
-            checkSlot += dir;
-          }
-          if (canMove) { nextActive = candidate; break; }
-          if (!nextActive) nextActive = candidate; // Fallback: al menos rotar aunque este bloqueado.
-        }
-        if (nextActive) {
+      if (scheduler->activeCount > 1) { // Fallback: rota al siguiente activo usando indice circular.
+        Boat *nextActive = ship_scheduler_rr_next_active(scheduler);
+        if (nextActive && nextActive != scheduler->activeBoat) {
           ship_scheduler_promote_active_to_front(scheduler, nextActive);
           nextActive->allowedToMove = true;
           if (nextActive->taskHandle) {

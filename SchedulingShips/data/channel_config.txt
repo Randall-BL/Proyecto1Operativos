@@ -1,11 +1,11 @@
 Plantilla usada para cada archivo de test:
 
-listlen 20
-visual 20
-flow sign
+listlen 200
+visual 200
+flow fair
 flowlog on
-w 2
-signms 8000
+w 4
+signms 500
 sign r
 proxpin 23 22
 proxpollms 120
@@ -13,7 +13,7 @@ sensor activate
 sensor threshold 10
 readymax 40
 alg rr
-quantum 4000
+quantum 1000
 step n 2
 step p 4
 step u 8
