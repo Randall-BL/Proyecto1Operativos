@@ -1,64 +1,62 @@
 # Scheduling Ships - To-Do List
 
 ## Calendarizadores
-- [ ] FCFS
-- [ ] Round Robin
-- [ ] Prioridad
-- [ ] SJF
-- [ ] STRN
-- [ ] EDF
+- [x] FCFS
+- [x] Round Robin
+- [x] Prioridad
+- [x] SJF
+- [x] STRN
+- [x] EDF
+
 
 ## Canal y Control de Flujo
-- [ ] Equidad (W parameter)
-- [ ] Letrero (dirección alternante)
-- [ ] Tico (sin control)
-- [ ] Detección de colisiones
-- [ ] Movimiento de barcos
+- [x] Equidad (W parameter)
+- [x] Letrero (dirección alternante)
+- [x] Tico (sin control)
+- [x] Detección de colisiones
+- [x] Movimiento de barcos
 
 ## Barcos
-- [ ] Tipos: Normal, Pesquera, Patrulla
-- [ ] Generación por carga predefinida
-- [ ] Generación por botones
+- [x] Tipos: Normal, Pesquera, Patrulla
+- [x] Generación por carga predefinida
 
 ## Interrupciones
-- [ ] Sensor de proximidad
-- [ ] Cerrado de compuertas
-- [ ] Re-queueing en emergencia
+- [x] Sensor de proximidad
+- [x] Cerrado de compuertas
+- [x] Re-queueing en emergencia
 
 ## ESP32 + LCD
-- [ ] Setup I2C y LCD
-- [ ] Pantalla estado canal
-- [ ] Pantalla detalles barcos
-- [ ] Pantalla estadísticas
-- [ ] Pantalla configuración
-- [ ] Botones de entrada
+- [x] Setup I2C y LCD
+- [x] Pantalla estado canal
+- [x] Pantalla detalles barcos
+- [x] Pantalla estadísticas
+- [x] Pantalla en horizontal
+- [ ] Evitar parpadeo de la pantalla
 
 ## FreeRTOS
-- [ ] Task scheduler
-- [ ] Task física del canal
-- [ ] Task UI update
-- [ ] Task input handler
-- [ ] Mutexes y sincronización
+- [x] Task scheduler
+- [x] Task física del canal
+- [x] Task UI update
+- [x] Task input handler
+- [x] Mutexes y sincronización
+- [x] Integración tareas↔scheduler
 
 ## Configuración
-- [ ] Parsear config.txt
-- [ ] Parsear ships.txt
-- [ ] Validación de parámetros
+- [x] Parsear config.txt
+- [x] Validación de parámetros
 
 ## Testing
-- [ ] Test de cada scheduler
-- [ ] Test de algoritmos flujo
-- [ ] Test de colisiones
-- [ ] Test de sensor
+- [x] Test de cada scheduler
+- [x] Test de algoritmos flujo
+- [x] Test de colisiones
+- [x] Test de sensor
 - [ ] Sin segfault/crashes
 
 ## Documentación
 - [ ] IEEE-Trans (5 páginas max)
 - [ ] README.md
-- [ ] Comentarios en código
 
 ## Entrega
 - [ ] Código compilable
 - [ ] ESP32 funcionando
 - [ ] Archivos config ejemplo
-- [ ] Backup listo

@@ -1,0 +1,121 @@
+\documentclass[journal]{IEEEtran}
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{graphicx}
+\usepackage{url}
+
+\title{Scheduling Ships: Simulador Embebido--PC para Evaluación de Algoritmos de Planificación y Control de Flujo en un Canal}
+
+\author{\IEEEauthorblockN{Randall Bolaños López \hspace{0.6em} Christopher Rodriguez Cordero \hspace{0.6em} Mauro Navarro}
+\IEEEauthorblockA{Curso: Sistemas Operativos\\
+Institución\\
+Correo: correo@ejemplo.com}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este proyecto implementa un simulador de cruce de barcos en un canal utilizando un microcontrolador (ESP32), una pantalla TFT y un simulador en Python conectado por Serial. El objetivo es evaluar algoritmos de planificación (FCFS, SJF, STRN, EDF, RR, Prioridad) y políticas de control de flujo (TICO, Equidad con parámetro $W$, y Letrero), incorporando además manejo de interrupciones/sensor de proximidad, detección de colisiones y pruebas. Un foco técnico relevante del desarrollo fue evitar bloqueos y espera activa (busy waiting) en la comunicación Serial y en el ciclo principal, de forma que el firmware y el simulador se mantengan responsivos.
+\end{abstract}
+
+\begin{IEEEkeywords}
+ESP32, FreeRTOS, planificación, Round Robin, EDF, STRN, simulación, comunicación Serial, concurrencia, sistemas embebidos.
+\end{IEEEkeywords}
+
+\section{Introducción}
+El sistema modela un canal con dos colas (izquierda/derecha) y barcos con atributos (tipo, prioridad, tiempos de servicio, deadlines). El firmware ejecuta el scheduler y actualiza la pantalla TFT, mientras que el simulador en Python sirve como monitor/visualizador y consola de comandos (estilo ``Serial Monitor''), permitiendo observar el comportamiento de los algoritmos.
+
+\section{Arquitectura y Flujo de Datos}
+El proyecto se divide en tres capas principales:
+\begin{itemize}
+	\item \textbf{Firmware (ESP32 + FreeRTOS):} contiene el modelo de barcos, la lógica del scheduler y el control de flujo. Cada barco puede ejecutar como tarea y se coordina con notificaciones/semaforización.
+	\item \textbf{Visualización embebida (TFT):} renderiza estado del canal, colas, estadísticas y estado de compuertas. El refresco está limitado para evitar parpadeo.
+	\item \textbf{Simulador en Python:} se conecta por Serial, consume logs en tiempo real y reconstruye el estado visual (colas, barco activo, movimientos por ``slot'') y ofrece envío de comandos.
+\end{itemize}
+
+La comunicación se basa en líneas de texto por Serial. El firmware emite eventos relevantes (arribo de barcos, inicio/finalización, cambios de algoritmo/flujo, movimientos por slot, preempciones y emergencias) y el simulador los interpreta para mantener el estado.
+
+\section{Estrategias para Evitar Busy Waiting y Bloqueos}
+En sistemas embebidos, la espera activa es especialmente costosa (consume CPU, degrada la temporización y puede afectar tareas concurrentes). En este proyecto se siguieron dos reglas prácticas:
+\begin{itemize}
+	\item \textbf{Evitar lecturas bloqueantes por línea en Serial en el ciclo principal:} en lugar de esperar a que llegue un fin de línea, se acumulan bytes disponibles y solo se procesa el comando cuando se detecta el delimitador (\texttt{\textbackslash n}).
+	\item \textbf{Ceder CPU sin introducir una pausa fija:} se utiliza una cesión corta (yield) para permitir ejecución de otras tareas, sin imponer un \textit{sleep} constante que altere el comportamiento lógico del scheduler.
+\end{itemize}
+En el simulador Python se evita bloquear el hilo lector: se usan lecturas no bloqueantes y un buffer incremental para construir líneas completas.
+
+\section{Atributos Reforzados}
+Durante el desarrollo se reforzaron los siguientes atributos:
+\begin{itemize}
+	\item \textbf{Trabajo individual y en equipo:} coordinación, reparto de responsabilidades, integración y evaluación del trabajo.
+	\item \textbf{Pensamiento sistémico y depuración:} análisis de concurrencia, eventos asincrónicos y sincronización entre firmware y simulador.
+	\item \textbf{Aseguramiento de calidad:} generación/ejecución de pruebas para algoritmos y configuración, y verificación de escenarios de emergencia y colisiones.
+	\item \textbf{Documentación técnica:} descripción reproducible de arquitectura, decisiones y criterios de evaluación.
+\end{itemize}
+
+\subsection{Trabajo individual y en equipo (7 puntos: pregunta y respuesta)}
+Esta subsección describe estrategias y evaluación del trabajo individual y grupal (equidad, inclusión y colaboración) en las etapas de planificación, ejecución y evaluación.
+
+\textbf{P1. ¿Qué estrategias se usaron para el trabajo individual y en equipo de forma equitativa e inclusiva en planificación, ejecución y evaluación?}\\
+\textbf{R1.} Para que el trabajo fuera equitativo e inclusivo, se trabajó por etapas y con un “tablero” simple de tareas del repo (\texttt{ToDOlist.md}) como punto de referencia común:
+\begin{itemize}
+	\item \textbf{Planificación:} primero se separó el sistema por módulos claros (lógica/scheduler, pantalla TFT, comandos/Serial, simulador Python, pruebas y configuración). Luego se tomó el alcance de \texttt{ToDOlist.md} como checklist: cada ítem tenía un “resultado visible” (por ejemplo, un algoritmo funcionando y observable tanto en la TFT como en Python).
+	\item \textbf{Ejecución:} cada miembro avanzaba en su área principal, pero cuando algo bloqueaba la integración (por ejemplo, cambios en logs Serial que rompían el parseo en Python), se priorizaba resolverlo en conjunto. Para facilitar trabajo distribuido, se dejaban notas cortas de “qué cambié” y “cómo probarlo”.
+	\item \textbf{Evaluación:} al terminar un ítem del ToDo se hacía una verificación rápida con evidencia: logs por Serial, estado en la TFT y estado en el simulador. Si un cambio impactaba a otro módulo, se coordinaba el ajuste correspondiente para que no quedaran versiones divergentes.
+\end{itemize}
+
+\textbf{P2. ¿Cómo se planificó el trabajo mediante identificación de roles, metas y reglas?}\\
+\textbf{R2.} La planificación se hizo identificando claramente quién era responsable de qué, qué significaba “terminado”, y qué reglas evitarían problemas de integración:
+\begin{itemize}
+	\item \textbf{Roles (por persona):} Christopher Rodriguez Cordero se encargó principalmente de la TFT/LCD y la visualización (\texttt{ShipDisplay.*}). Randall Bolaños López se enfocó en la aplicación/simulador en Python y su sincronización por eventos (\texttt{display\_simulator.py}). Mauro Navarro trabajó sobre la lógica del scheduler, algoritmos y apoyo general de integración (\texttt{ShipScheduler.*}, \texttt{ShipModel.*} y coordinación con comandos/escenarios).
+	\item \textbf{Metas:} cerrar los ítems de \texttt{ToDOlist.md} con evidencias: algoritmos apropiativos (STRN/EDF/PRIO) con preempción correcta, RR con quantum, políticas de flujo (TICO, Equidad, Letrero), emergencias por sensor y configuración reproducible desde LittleFS (\texttt{channel\_config.txt}).
+	\item \textbf{Reglas:} (i) contrato de comunicación por líneas (comandos y eventos terminados en \texttt{\textbackslash n}), (ii) evitar lecturas bloqueantes en el ciclo principal para no caer en busy waiting, y (iii) definir “hecho” como “se observa igual en TFT y en Python” (si uno se desincronizaba, el ítem no se consideraba terminado).
+\end{itemize}
+
+\textbf{P3. ¿Qué acciones promovieron la colaboración entre miembros del equipo durante el desarrollo?}\\
+\textbf{R3.} Para colaborar sin estorbarse (porque cada quien estaba en un módulo distinto), se tomaron acciones concretas:
+\begin{itemize}
+	\item \textbf{Contrato explícito de integración:} se acordó que el simulador Python no “adivina” por tiempo; se alinea por eventos/estado emitidos por el firmware (por ejemplo, ``moved to slot'', ``Preemption:'', ``Pausado/Reanudado barco''). Esto ayudó a que la TFT (Chris) y el simulador (Randall) mostraran lo mismo.
+	\item \textbf{Revisión cruzada en cambios riesgosos:} cuando se tocaban preempciones, colas o emergencia, se pedía a otro miembro correr un escenario completo (Serial + TFT + Python) para encontrar efectos laterales (como barcos que “desaparecen” en un lado pero no en el otro).
+	\item \textbf{Handoffs cortos y prácticos:} al subir cambios se dejaba lo mínimo necesario: qué cambió, cómo probarlo y qué salida/logs esperar. Esto redujo el “tiempo perdido” explicando contexto.
+\end{itemize}
+
+\textbf{P4. ¿Cómo se ejecutaron las estrategias planificadas para lograr los objetivos?}\\
+\textbf{R4.} La ejecución siguió una secuencia incremental, usando \texttt{ToDOlist.md} como guía de “siguiente paso” y con validación constante para no acumular deuda de integración:
+\begin{itemize}
+	\item \textbf{Incremento 1 (base):} se levantó la lógica principal del canal y algoritmos, junto con una visualización base en la TFT para tener un “feedback” inmediato.
+	\item \textbf{Incremento 2 (flujo e interrupciones):} se integraron los modos TICO/Equidad/Letrero y el sensor de proximidad con su emergencia/re-queueing, cuidando que el scheduler siguiera consistente.
+	\item \textbf{Incremento 3 (integración firmware--Python):} se reforzó Serial no bloqueante y el parseo por eventos, y se corrigieron puntos finos como preempciones (cuando el firmware reencola al activo en STRN/EDF/PRIO) para evitar inconsistencias como “barcos fantasma”.
+	\item \textbf{Reproducibilidad:} se usó configuración por archivo en LittleFS (\texttt{channel\_config.txt}) para repetir pruebas y escenarios de forma consistente.
+\end{itemize}
+
+\textbf{P5. ¿Cómo se evaluó el desempeño del trabajo individual y en equipo?}\\
+\textbf{R5.} La evaluación fue práctica: si el resultado se veía bien en una sola parte pero no en el sistema completo, no se consideraba logrado. Se tomó evidencia técnica y se midió avance real contra el ToDo:
+\begin{itemize}
+	\item \textbf{Individual:} cada entrega debía (i) ser observable (logs + efecto en TFT/Python), (ii) tener una forma clara de probarse (comandos/escenarios reproducibles), y (iii) no romper lo que ya estaba “checkeado” en \texttt{ToDOlist.md}.
+	\item \textbf{Equipo:} se midió por integración estable (consistencia TFT--Python), cierre progresivo del alcance del ToDo y ejecución de escenarios de prueba (\texttt{SchedulingShips/data/tests/} y \texttt{SchedulingShips/tools/}).
+	\item \textbf{Calidad:} se priorizó que no hubiera bloqueos perceptibles (especialmente por Serial) y que los casos límite se manejaran bien (preempciones, emergencia/sensor, colas llenas).
+\end{itemize}
+
+\textbf{P6. ¿Cómo se evaluaron las estrategias de equidad e inclusión utilizadas?}\\
+\textbf{R6.} Se evaluó equidad e inclusión con tres chequeos:
+\begin{itemize}
+	\item \textbf{Balance de carga:} que el trabajo se distribuyera entre firmware, simulador y pruebas/documentación (no solo en un área).
+	\item \textbf{Redundancia de conocimiento:} al menos dos personas debían poder explicar y depurar cada parte crítica (Serial, preempción, TFT), reduciendo dependencia de un ``experto único''.
+	\item \textbf{Ajustes por retroalimentación:} cuando se detectaban dependencias fuertes (p.ej., cambios de logs que impactan Python), se replanificaba para que la integración fuera conjunta y no excluyente.
+\end{itemize}
+
+\textbf{P7. ¿Cómo se evaluaron las acciones de colaboración entre miembros del equipo?}\\
+\textbf{R7.} La colaboración se evaluó por impacto en integración y soporte mutuo:
+\begin{itemize}
+	\item \textbf{Integración sin regresiones:} se observó si al unir módulos aparecían fallos como barcos persistentes en Python tras preempciones o inconsistencias de colas.
+	\item \textbf{Tiempo de respuesta:} rapidez para atender incidencias que afectaban a otros (p.ej., adaptar el parser de Python cuando se añadió el log de preempción).
+	\item \textbf{Validación cruzada:} número de veces que un cambio fue probado por otra persona en un escenario completo (Serial + TFT + simulador) antes de considerarse final.
+\end{itemize}
+
+\section{Conclusiones}
+El proyecto permite comparar algoritmos de planificación y políticas de control de flujo en un escenario visual y reproducible. A nivel de ingeniería, se identificó que una integración confiable firmware--PC depende de evitar bloqueos por lectura Serial y de basar la sincronización del simulador en eventos/estado (no en temporización implícita). En términos de trabajo individual y en equipo, se reforzaron prácticas de planificación por roles y objetivos, colaboración mediante integración gradual, y evaluación basada en evidencia funcional.
+
+\end{document}
+

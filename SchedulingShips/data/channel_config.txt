@@ -1,0 +1,33 @@
+Plantilla usada para cada archivo de test:
+
+listlen 400
+visual 400
+flow tico
+flowlog on
+w 2
+signms 500
+sign r
+proxpin 23 22
+proxpollms 120
+sensor activate
+sensor threshold 10
+readymax 40
+alg rr
+quantum 3000
+step n 17
+step p 18
+step u 19
+
+democlear
+demoadd l n 1
+demoadd l n 1
+demoadd l n 1
+demoadd l p 1
+demoadd r n 1
+demoadd r p 1
+demoadd r n 1
+demoadd r n 1
+demoadd r u 1
+demoadd r p 1
+demoadd r u 1
+demoadd r u 1
