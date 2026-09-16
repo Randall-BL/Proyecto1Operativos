@@ -85,10 +85,12 @@ Contra la campaña de hoy, que es la que muestra `flushing.html`:
   bloque de cada cuarto arranca en su volumen validado, se va descontando con el
   consumo primero y con la boquilla después, y termina en `HECHO`.
 
-  **Y nada se adelanta.** El rótulo `SIN FLUSHING · VOLUMEN CUBIERTO POR EL
-  CONSUMO` no está desde el principio: aparece en el instante en que ese cuarto
-  llega a su volumen validado —CR2 en el minuto 44, CR1 en el 51—. Hasta
-  entonces su fila no dice nada de lo que va a pasar.
+  **Y nada se adelanta.** CR1 y CR2 no llevan bloque, así que en su fila va el
+  flushing que les falta, contando hacia abajo con cada litro que consumen:
+  `FALTA FLUSHING 192 L`, `69 L`, `12 L`… Solo cuando llega a cero —CR2 en el
+  minuto 44, CR1 en el 51— el número deja paso al rótulo `SIN FLUSHING · VOLUMEN
+  CUBIERTO POR EL CONSUMO`. Que un cuarto se libere no es un dato de partida: es
+  el momento que la animación tiene que hacer ver.
 - **En la tabla del pie**, que deja de ser un cronograma y pasa a ser la orden de
   trabajo: estaciones, volumen validado, consumo acreditado y flushing pendiente.
   También se llena sola: el acreditado sube y el pendiente baja con cada litro, y

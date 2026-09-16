@@ -1262,11 +1262,18 @@ function drawTrace(){
     g.fillText(n0(cred) + ' / ' + r.target + ' L', a.x + a.w / 2, y + 16);
 
     if (!s){
-      /* Que un cuarto se libere no es un dato de partida: se sabe en el instante
-         en que su consumo llega al volumen validado —CR2 en el minuto 44, CR1 en
-         el 51—, y hasta entonces la fila no adelanta nada. */
-      if (r.used >= r.target){
-        g.textAlign = 'left'; g.font = F.cond(11, 700); g.fillStyle = C.sage;
+      /* Estos cuartos no llevan bloque, así que el flushing que les falta va
+         aquí, contando hacia abajo con cada litro que consumen. Solo cuando
+         llega a cero —CR2 en el minuto 44, CR1 en el 51— el número deja paso al
+         rótulo: que el cuarto se libere no es un dato de partida, es el momento
+         que la animación tiene que hacer ver. */
+      const falta = pendOf(r);
+      g.textAlign = 'left'; g.font = F.cond(11, 700);
+      if (falta > 0){
+        g.fillStyle = C.fluid;
+        g.fillText('FALTA FLUSHING ' + n0(falta) + ' L', gx(ACC) + 8, y + 16);
+      } else {
+        g.fillStyle = C.sage;
         g.fillText('SIN FLUSHING · VOLUMEN CUBIERTO POR EL CONSUMO', gx(ACC) + 8, y + 16);
       }
       seg(g, 0, T_END, y, ROW_H, null, C.edge);
@@ -1335,8 +1342,8 @@ function hoverInfo(mx, my){
       return r.used >= r.target
         ? { k:r.name, v:'Sin flushing · volumen cubierto por el consumo',
             w: n0(Math.min(r.used, r.target)) + ' L acreditados' }
-        : { k:r.name, v:'Acreditando consumo',
-            w: n0(r.used) + ' de ' + r.target + ' L' };
+        : { k:r.name, v:'Falta flushing · ' + n0(pendOf(r)) + ' L',
+            w: n0(r.used) + ' de ' + r.target + ' L acreditados' };
     if (mx >= gx(s.setup) && mx < gx(s.flush))
       return { k:r.name, v:'Preparación', w:hms(s.setup) + ' – ' + hms(s.flush) };
     if (mx >= gx(s.flush) && mx < gx(s.end))
