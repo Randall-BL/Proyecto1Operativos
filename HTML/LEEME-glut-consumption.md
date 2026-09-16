@@ -23,7 +23,7 @@ flushing descuenta.
 ## De qué va
 
 El volumen mínimo de flushing es un volumen que tiene que **pasar por la línea**
-del cuarto. No exige que salga por la manguera de la purga: si el propio cuarto
+del cuarto. No exige que salga por la manguera del flushing: si el propio cuarto
 lo saca por sus Glut Stations, por la tubería pasó el mismo volumen y la línea se
 renovó igual. Lo que hoy impide acreditarlo es que el único instrumento está en
 el tanque y no distingue por cuál boquilla salió el líquido.
@@ -31,7 +31,7 @@ el tanque y no distingue por cuál boquilla salió el líquido.
 Con un flujómetro en cada Glut Station sí se puede. Se abre una **ventana de
 lectura**: cada estación totaliza lo suyo, la aplicación lo suma
 por cuarto y lo descuenta del volumen validado. Al cerrar la ventana solo se
-purga lo que faltó.
+hace el flushing que faltó.
 
 ## Los números
 
@@ -41,15 +41,15 @@ en total**. Con los consumos que usa la animación:
 | Cuarto | Glut Stations | Volumen validado | Consumo acreditado | Flushing pendiente |
 |---|---|---|---|---|
 | Training | 4 | 120 L | 48 L (40 %) | **72 L** |
-| CR1 | 6 | 450 L | 450 L | **0 L — no se purga** |
-| CR2 | 6 | 252 L | 252 L | **0 L — no se purga** |
+| CR1 | 6 | 450 L | 450 L | **0 L — sin flushing** |
+| CR2 | 6 | 252 L | 252 L | **0 L — sin flushing** |
 | CR3 | 4 | 266 L | 189 L | **77 L** |
 | CR4 | 5 | 295 L | 118 L (40 %) | **177 L** |
 | **Total** | **25** | **1383 L** | **1057 L** | **326 L** |
 
 CR1 y CR2, con seis estaciones cada uno, cubren su volumen validado ellos solos:
 CR1 lo cruza en el minuto 51 y CR2 en el 44. De ahí en adelante quedan liberados
-y el cronograma ni siquiera les abre fila de purga.
+y el cronograma ni siquiera les abre fila.
 
 Contra la campaña de hoy, que es la que muestra `flushing.html`:
 
@@ -57,7 +57,7 @@ Contra la campaña de hoy, que es la que muestra `flushing.html`:
 |---|---|---|
 | Instrumento | PT-100 en el tanque | Flujómetro en **cada una de las 25 Glut Stations** |
 | Qué mide | El volumen de todo el tanque | Lo que saca el cuarto por todas sus estaciones |
-| Estaciones que se purgan | 5 | **3** |
+| Estaciones que necesitan flushing | 5 | **3** |
 | Volumen de la campaña | 1383 L | **326 L** |
 | Duración del trabajo | ≈ 1 h 47 min | **≈ 36 min** |
 | Producción detenida | **2 h 00 min** | **0 min** |
@@ -71,12 +71,19 @@ Contra la campaña de hoy, que es la que muestra `flushing.html`:
 - **En cada cuarto**, sus Glut Stations dibujadas una por una, abriendo y
   cerrando con su chorro —en verde salvia las que están abiertas—, la pantalla de
   la AMF con el totalizador, la barra de `ACREDITADO x / meta` y la línea
-  `falta purgar N L`, que pasa a `sin purga · volumen cubierto` cuando el cuarto
-  queda liberado.
+  `falta flushing N L`, que pasa a `sin flushing · volumen cubierto` cuando el
+  cuarto queda liberado.
 - **En el cronograma**, una barra de crédito por fila dentro de la ventana de
-  lectura, la raya del cierre, y después solo tres bloques de purga —72 L, 77 L y
-  177 L—. CR1 y CR2 llevan en su lugar el rótulo `SIN PURGA · VOLUMEN CUBIERTO
-  POR EL CONSUMO`.
+  lectura, la raya del cierre, y después solo tres bloques de flushing —72 L,
+  77 L y 177 L—. CR1 y CR2 llevan en su lugar el rótulo `SIN FLUSHING · VOLUMEN
+  CUBIERTO POR EL CONSUMO`.
+
+  **Todo lo que el cronograma dice en litros es el flushing que falta en ese
+  instante, no un rótulo fijo.** La banda de la planta cuenta hacia abajo desde
+  los 1383 L conforme los cuartos consumen, se queda en los 326 L de la orden de
+  trabajo al cerrar la ventana, y de ahí baja hasta `FLUSHING COMPLETO`. El
+  bloque de cada cuarto arranca en su pendiente, se va descontando mientras la
+  boquilla está abierta y termina en `HECHO`.
 - **En la tabla del pie**, que deja de ser un cronograma y pasa a ser la orden de
   trabajo: estaciones, volumen validado, consumo acreditado y flushing pendiente.
 
@@ -104,7 +111,7 @@ concreto durante una presentación:
   la ventana
 - `glut-consumption.html#4300` — justo después del cierre, con la orden de
   trabajo de 326 L ya emitida
-- `glut-consumption.html#5100` — con CR4 purgando sus 177 L
+- `glut-consumption.html#5100` — con CR4 haciendo sus 177 L de flushing
 
 ## Supuestos nuevos, que conviene revisar antes de presentarla
 
@@ -122,7 +129,8 @@ los supuestos propios de esta animación:
 
 Los consumos están declarados en la tabla `USED` al inicio del `<script>`, en
 litros por cuarto dentro de la ventana. Todo lo demás —el crédito, el pendiente
-de cada cuarto, qué cuartos se purgan, el cronograma, la tabla y los totales— se
+de cada cuarto, qué cuartos necesitan flushing, el cronograma, la tabla y los
+totales— se
 recalcula solo a partir de ahí, así que para probar otros consumos basta cambiar
 esos cinco números. El patrón de apertura de cada estación es determinista y está
 calibrado contra la ventana, de modo que el acumulado al cierre cae exactamente
@@ -143,7 +151,7 @@ Además de los de `LEEME.md`:
   isométricos, y si todas van a llevar flujómetro o solo algunas.
 - **Acordar la ventana de lectura**: cuánto tiempo se deja acumular consumo antes
   de emitir la orden de trabajo, y si el crédito se congela en ese punto —como lo
-  hace la animación— o sigue descontándose hasta que arranca cada purga.
+  hace la animación— o sigue descontándose hasta que arranca cada flushing.
 - **Validar el criterio con calidad**: que el volumen consumido por las Glut
   Stations del cuarto cuente como volumen de flushing es el supuesto de fondo de
   todo este escenario, y es el que hay que llevar a revisión.
