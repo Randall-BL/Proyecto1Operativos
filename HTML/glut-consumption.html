@@ -22,11 +22,6 @@
     --fluid:#346583;       /* accent3 — la solución                        */
     --fluid-hi:#7A99AC;    /* paso claro de accent3, usado en el template  */
     --fluid-dim:#A8BCC7;   /* línea llena sin flujo                        */
-    --old:#B99B5E;         /* accent4 #CEB888 un paso oscuro — lote A      */
-    --old-hi:#DDC79A;      /* accent4 tal cual — frente que avanza         */
-    --old-dim:#D5BF92;     /* lote A en línea llena sin flujo              */
-    --old-ink:#7A6326;     /* accent4 oscurecido hasta 5,8:1 sobre blanco  */
-    --tint-old:#F4EEE0;    /* accent4 al 12 % — fondos                     */
     --brand:#C8102E;       /* accent1 — rojo Edwards: paro, alarma, énfasis*/
     --brand-dk:#982E2F;    /* accent5                                      */
     --sage:#5E7263;        /* paso oscuro de dk2 — Glut Station en uso     */
@@ -396,7 +391,7 @@
   <section class="stage" aria-label="Esquema animado de la línea y cronograma de la campaña">
     <div class="scenewrap">
       <canvas id="scene" width="1240" height="474" role="img"
-        aria-label="Esquema del tanque de GLUT, cargado con el lote nuevo y con su sensor de presión PT-100, el libro de consumo acreditado de los cinco cuartos, el cabezal de distribución y los cuartos —Training, CR1, CR2, CR3 y CR4— cada uno con sus Glut Stations. La solución nueva avanza por la tubería empujando a la del lote anterior conforme los cuartos consumen."></canvas>
+        aria-label="Esquema del tanque de solución de GLUT con su sensor de presión PT-100, el libro de consumo acreditado de los cinco cuartos, el cabezal de distribución y los cuartos —Training, CR1, CR2, CR3 y CR4— cada uno con sus Glut Stations. La solución circula del tanque a las estaciones conforme los cuartos consumen."></canvas>
       <div class="plot">
         <canvas id="trace" width="852" height="230" role="img"
           aria-label="Cronograma de la campaña de flushing: una fila por cuarto con su ventana de preparación, purga y lectura, y una banda superior que indica si la planta puede consumir."></canvas>
@@ -405,9 +400,8 @@
     </div>
     <div class="bar">
       <div class="key">
-        <span><i style="background:var(--old)"></i>Lote A &middot; solución anterior</span>
-        <span><i style="background:var(--fluid)"></i>Lote B &middot; solución nueva</span>
-        <span><i style="background:var(--metal)"></i>POU cerrado</span>
+        <span><i style="background:var(--fluid)"></i>Solución de GLUT</span>
+        <span><i style="background:var(--metal)"></i>Glut Station cerrada</span>
         <span><i style="background:var(--sage)"></i>Glut Station en uso</span>
         <span class="note" id="keyNote"></span>
       </div>
@@ -427,7 +421,7 @@
     <div class="tile">
       <h3>Tanque de GLUT &middot; PT-100</h3>
       <div><span class="big" id="ptP">0,0</span><span class="unit">mbar</span></div>
-      <div class="sub">Nivel <span id="ptH">0,000</span> m &nbsp;&middot;&nbsp; <span id="ptV">0</span> L de lote B</div>
+      <div class="sub">Nivel <span id="ptH">0,000</span> m &nbsp;&middot;&nbsp; <span id="ptV">0</span> L en el tanque</div>
       <span class="chip no" id="ptChip">Ninguna Glut abierta</span>
     </div>
 
@@ -466,7 +460,7 @@
       <p class="lede" id="tblLede"></p>
       <div class="tblwrap">
         <table>
-          <thead><tr id="thead"><th>Estación</th><th>Volumen</th><th>Empuja lote A</th><th>Purga inicia</th><th>Purga termina</th><th>Duración</th></tr></thead>
+          <thead><tr id="thead"><th>Estación</th><th>Glut Stations</th><th>Volumen validado</th><th>Consumo acreditado</th><th>Flushing pendiente</th><th>Purga</th></tr></thead>
           <tbody id="tbody"></tbody>
         </table>
       </div>
@@ -476,7 +470,6 @@
   <footer>
     <strong>Datos del esquema.</strong> Volúmenes mínimos de flushing y etiquetas del POU más lejano, tomados de la validación de cada cuarto: Training 120 L (DOC-0138892A), CR1 450 L y CR2 252 L (DOC-0185706A, DOC-0132700A), CR3 266 L (DOC-0216863A), CR4 295 L (DOC-0250796B, DOC-0565322A). Suman <strong>1383 L</strong> por campaña.
     <br><strong>Supuestos de la animación.</strong> El tanque se modela como cilindro vertical de 6000 L y Ø 1,80 m (área 2,545 m²) con densidad 1010 kg/m³, de modo que presión, nivel y volumen se correspondan entre sí. El caudal de purga (18 L/min), los tiempos de preparación y lectura por estación, y los consumos de las Glut Stations en uso son valores representativos escogidos para que la campaña dure las dos horas conocidas; no divulgan parámetros de proceso. El reloj corre acelerado respecto al tiempo real.
-    <br><strong>Volumen de la línea.</strong> El desplazamiento del lote A se simula repartiendo un volumen de tubería por ramal igual a <strong>un tercio del volumen mínimo de flushing</strong> de ese cuarto —la regla habitual de purgar tres volúmenes de línea—: 40 L hasta Training, 150 L hasta CR1, 84 L hasta CR2, 89 L hasta CR3 y 98 L hasta CR4, de los cuales 58 L son cabezal compartido. Es un supuesto de la animación, no un dato medido: sirve para mostrar que los primeros litros de cada purga solo empujan la solución anterior. Conviene confirmarlo contra los isométricos de la línea antes de presentarla.
     <br><strong>Glut Consumption &middot; consumo acreditado.</strong> Cada cuarto tiene sus Glut Stations —<strong>Training 4, CR1 6, CR2 6, CR3 4 y CR4 5, 25 en total</strong>— y el volumen mínimo de flushing es un volumen que tiene que pasar por la línea del cuarto, sin importar por cuál de ellas salga. Con los consumos medidos que usa la animación —48 L en Training, 540 L en CR1, 360 L en CR2, 189 L en CR3 y 118 L en CR4 dentro de una ventana de lectura de 60 min— el crédito acumulado es de <strong>1 057 L</strong> y el flushing pendiente baja de 1 383 L a <strong>326 L</strong>: 0 L en CR1 y CR2, que cubren su volumen validado ellos solos, 72 L en Training, 77 L en CR3 y 177 L en CR4. Training y CR4 están puestos consumiendo el 40 % de su volumen. Los consumos por cuarto son el dato que hay que confirmar con la operación real; se cambian en la tabla <code>USED</code> al inicio del <code>&lt;script&gt;</code> y el escenario entero se recalcula solo.
     <br><strong>Atajos.</strong> Barra espaciadora: reproducir o pausar. Tecla R: reiniciar. El enlace <code>glut-consumption.html#4300</code> abre la animación en el segundo 4300, con la ventana de lectura ya cerrada.
   </footer>
@@ -509,8 +502,8 @@ const hms = t => {
 const cssv = getComputedStyle(document.documentElement);
 const C = {};
 ['ground','panel','panel-2','bore','edge','edge-2','ink','ink-2','ink-3',
- 'fluid','fluid-hi','fluid-dim','old','old-hi','old-dim','old-ink',
- 'brand','sage','metal','tint-brand','tint-sage','tint-old'].forEach(k => {
+ 'fluid','fluid-hi','fluid-dim',
+ 'brand','sage','metal','tint-brand','tint-sage'].forEach(k => {
   C[k] = cssv.getPropertyValue('--' + k).trim();
   if (!C[k]) throw new Error('falta la variable de color --' + k);
 });
@@ -528,37 +521,21 @@ const F = {
    1 · El sistema y la campaña
    ====================================================================== */
 
-/* Un solo tanque alimenta el cabezal. Se carga con el lote nuevo, y la línea
-   sigue llena del lote anterior: cada litro que se saca por una boquilla mete
-   lote nuevo por arriba y empuja al viejo hasta sacarlo por el extremo. De ese cabezal cuelga un ramal por
-   cuarto, cada uno con varios POU, y el flushing se ejecuta siempre en el
-   último, que es el peor caso de desplazamiento de volumen en la tubería. La
-   campaña recorre los cinco cuartos en secuencia: al terminar uno sigue el
-   siguiente.
-
-   `line` es el volumen de tubería desde el manifold hasta el último POU de ese
-   cuarto. Es un supuesto de la animación —un tercio del volumen de flushing,
-   la regla de purgar tres volúmenes de línea— y está declarado en el pie.
+/* Un solo tanque alimenta el cabezal, cargado con la solución de GLUT. De ese
+   cabezal cuelga un ramal por cuarto, cada uno con sus Glut Stations, y el
+   flushing se ejecuta siempre en la última, la más lejana del tanque, porque es
+   el peor caso. La campaña recorre en secuencia los cuartos que la necesiten.
 
    `gs` son las Glut Stations del cuarto: los puntos por donde el cuarto saca
    solución a diario, y el último de la lista es donde se ejecuta el flushing. */
 const ROOMS = [
-  { id:'TRN', name:'TRAINING', tag:'GLUT-TRN-POU #4',          target:120, line: 40, gs:4 },
-  { id:'CR1', name:'CR1',      tag:'CRCW-GLUT-CR1-POU-GST-06', target:450, line:150, gs:6 },
-  { id:'CR2', name:'CR2',      tag:'CRCW-GLUT-CR2-POU-GST-06', target:252, line: 84, gs:6 },
-  { id:'CR3', name:'CR3',      tag:'CRCW-GLUT-CR3-POU-GST-04', target:266, line: 89, gs:4 },
-  { id:'CR4', name:'CR4',      tag:'CRCW-GLUT-CR4-POU-GST-05', target:295, line: 98, gs:5 }
+  { id:'TRN', name:'TRAINING', tag:'GLUT-TRN-POU #4',          target:120, gs:4 },
+  { id:'CR1', name:'CR1',      tag:'CRCW-GLUT-CR1-POU-GST-06', target:450, gs:6 },
+  { id:'CR2', name:'CR2',      tag:'CRCW-GLUT-CR2-POU-GST-06', target:252, gs:6 },
+  { id:'CR3', name:'CR3',      tag:'CRCW-GLUT-CR3-POU-GST-04', target:266, gs:4 },
+  { id:'CR4', name:'CR4',      tag:'CRCW-GLUT-CR4-POU-GST-05', target:295, gs:5 }
 ];
 const TOTAL = ROOMS.reduce((a,r) => a + r.target, 0);   // 1383 L
-
-/* La línea se parte en tramos, que es lo que permite seguir el frente entre
-   los dos lotes: cinco tramos de cabezal, compartidos, y un ramal por cuarto.
-   El cabezal es común, así que lo que desplaza una purga le queda desplazado a
-   la siguiente: por eso solo TRAINING paga los 18 L del primer tramo. */
-const HSEG = [18, 10, 10, 10, 10];                         // L de cabezal
-const hdrCum = i => HSEG.slice(0, i + 1).reduce((a,b) => a + b, 0);
-const BSEG = ROOMS.map((r,i) => r.line - hdrCum(i));       // L de ramal
-const LINE_TOTAL = hdrCum(4) + BSEG.reduce((a,b) => a + b, 0);
 
 /* El tanque: cilindro vertical. El PT-100 mide la presión hidrostática en el
    fondo; de ahí salen el nivel y el volumen. En esta animación el tanque no
@@ -568,7 +545,7 @@ const TANK_CAP  = 6000;   // L
 const TANK_AREA = 2.545;  // m² — Ø 1,80 m
 const RHO       = 1010;   // kg/m³
 const GRAV      = 9.81;   // m/s²
-const TANK_0    = 4500;   // L de lote nuevo en el tanque al arrancar
+const TANK_0    = 4500;   // L de solución en el tanque al arrancar
 const levelOf = V => V / (TANK_AREA * 1000);          // m
 const pressOf = V => RHO * GRAV * levelOf(V) / 100;   // mbar
 
@@ -583,14 +560,13 @@ const T_END   = 7500;   // s de simulación — 125 min
    Glut Consumption · el consumo del cuarto descuenta el flushing
 
    El volumen mínimo de flushing es un volumen que tiene que pasar por la línea
-   del cuarto para dar por desplazado el lote anterior. No exige que salga por
-   la manguera de la purga: si el propio cuarto lo saca por sus Glut Stations,
-   la tubería queda igual de desplazada y el fluido de la línea va bajando solo.
-   Hoy eso no se puede acreditar, porque el único instrumento está en el tanque
-   y no distingue por cuál boquilla salió el líquido. Con un flujómetro en cada
-   Glut Station, sí.
+   del cuarto para darla por barrida. No exige que salga por la manguera de la
+   purga: si el propio cuarto lo saca por sus Glut Stations, por la tubería pasó
+   el mismo volumen y la línea se fue renovando sola. Hoy eso no se puede
+   acreditar, porque el único instrumento está en el tanque y no distingue por
+   cuál boquilla salió el líquido. Con un flujómetro en cada Glut Station, sí.
 
-   Así que al cambiar el lote se abre una ventana de lectura: cada estación
+   Así que se abre una ventana de lectura: cada estación
    totaliza lo que sirve, la aplicación lo suma por cuarto y lo descuenta del
    volumen validado. Al cerrar la ventana solo se purga lo que falte, y los
    cuartos que consumen bastante —CR1 y CR2, con seis estaciones cada uno—
@@ -608,7 +584,7 @@ const SLOT = 30;     // s — tramo mínimo en que una estación queda abierta
 const USED = { TRN:48, CR1:540, CR2:360, CR3:189, CR4:118 };
 
 /* El crédito nunca pasa del volumen validado del cuarto: lo que sobra no
-   acredita nada, solo confirma que la línea quedó desplazada. */
+   acredita nada, solo confirma que por la línea pasó de sobra. */
 const CRED = ROOMS.map(r => Math.min(r.target, USED[r.id]));
 const NEED = ROOMS.map((r,i) => Math.max(0, r.target - CRED[i]));   // 72 · 0 · 0 · 77 · 177
 const CRED_TOTAL = CRED.reduce((a,b) => a + b, 0);       // 1057 L acreditados
@@ -643,29 +619,6 @@ const gsOpenCount = (i, t) => {
   return n;
 };
 const roomUse = (i, t) => gsOpenCount(i, t) * Q_GS * GSK[i];
-
-/* El frente entre los dos lotes. Se empujan dV litros de lote B por el camino
-   que va del manifold al último POU del cuarto i. Un tramo solo empieza a
-   recibir lote B cuando el anterior ya está lleno de lote B: mientras al tramo
-   de aguas arriba le quede lote A, lo que sale por su extremo sigue siendo
-   lote A. Es la misma cuenta que hace el flujo pistón, y es la razón de que el
-   volumen mínimo de flushing sea varias veces el volumen de la tubería. */
-function displace(i, dV){
-  if (!(dV > 0)) return;
-  let inNew = dV;
-  for (let k = 0; k <= i; k++){
-    const space = HSEG[k] - S.pipe.h[k];
-    if (space > 0){
-      S.pipe.h[k] = Math.min(HSEG[k], S.pipe.h[k] + inNew);
-      inNew -= space;
-      if (inNew <= 0) return;
-    }
-  }
-  S.pipe.r[i] = Math.min(BSEG[i], S.pipe.r[i] + inNew);
-}
-
-/* ¿Lo que sale por la boquilla del cuarto i ya es lote B? */
-const atNozzle = i => S.pipe.r[i] >= BSEG[i] - 1e-6;
 
 /* Cronograma: preparación, purga y cierre de cada estación, una tras otra.
    Arranca cuando cierra la ventana de lectura, y los cuartos que ya cubrieron su
@@ -705,7 +658,6 @@ const S = {
   tank: TANK_0,
   noise: 0,
   rooms: [],
-  pipe: { h:[], r:[] },   // litros de lote B que ya entraron en cada tramo
   hover: null
 };
 
@@ -732,8 +684,6 @@ function reset(){
   S.t = 0; S.tank = TANK_0; S.noise = 0;
   S.hover = null;
   S.dash = {};
-  // toda la línea arranca llena del lote anterior
-  S.pipe = { h: HSEG.map(() => 0), r: BSEG.map(() => 0) };
   S.rooms = ROOMS.map((r,i) => ({
     ...r, i, mode:'closed', sub:null, q:0, vol:0, vessel:0,
     goal: NEED[i], used: 0, nOpen: 0, done: false
@@ -762,8 +712,6 @@ function update(dt){
        flujómetro: eso es lo que la aplicación puede acreditar. */
     r.nOpen = mode === 'use' ? gsOpenCount(r.i, S.t) : 0;
     r.q = mode === 'flush' ? Q_FLUSH : r.nOpen * Q_GS * GSK[r.i];
-    // todo lo que se saca por un POU empuja el frente por ese camino
-    if (r.q > 0) displace(r.i, r.q * dt / 60);
     if (mode === 'flush') r.vol = Math.min(r.goal, r.vol + r.q * dt / 60);
     if (mode === 'use'){
       // el totalizador de las Glut Stations: es el crédito contra el flushing
@@ -800,14 +748,6 @@ const ROOM_Y = 268, ROOM_W = 164, ROOM_H = 176;
 const branchX = i => ROOM_X[i] + 26;
 const lastX   = i => ROOM_X[i] + 138;
 
-/* El ramal de un cuarto se dibuja en tres tramos —la bajante del cabezal, el
-   recorrido dentro del cuarto y la bajada al último POU—, pero para el frente
-   es un solo tramo. Estos son los cortes, por longitud dibujada, que dicen qué
-   parte del ramal le toca a cada trozo. */
-const BR_L = [ROOM_Y + 4 - HDR_Y, 18 + (lastX(0) - branchX(0)), 14];
-const BR_T = BR_L.reduce((a,b) => a + b, 0);
-const BR_A = [0, BR_L[0] / BR_T, (BR_L[0] + BR_L[1]) / BR_T, 1];
-
 const scene = $('#scene');
 const ctx   = scene.getContext('2d');
 
@@ -835,35 +775,6 @@ function txt(s, x, y, font, color, align='left'){
   ctx.textAlign = 'left';
 }
 
-/* Longitud de cada tramo de una polilínea, y el trozo comprendido entre dos
-   fracciones de esa longitud. Con esto se parte una tubería en la parte que ya
-   lleva lote B y la que todavía lleva lote A. */
-function polyLen(pts){
-  const segs = []; let L = 0;
-  for (let i = 1; i < pts.length; i++){
-    const d = Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]);
-    segs.push(d); L += d;
-  }
-  return { L, segs };
-}
-function subPoly(pts, f0, f1){
-  const { L, segs } = polyLen(pts);
-  if (!(L > 0) || f1 <= f0) return null;
-  const d0 = f0 * L, d1 = f1 * L;
-  const out = []; let acc = 0;
-  for (let i = 1; i < pts.length; i++){
-    const a = pts[i-1], b = pts[i], d = segs[i-1], e = acc + d;
-    const lo = Math.max(acc, d0), hi = Math.min(e, d1);
-    if (d > 0 && hi >= lo){
-      const t0 = (lo - acc) / d, t1 = (hi - acc) / d;
-      if (!out.length) out.push([a[0] + (b[0]-a[0])*t0, a[1] + (b[1]-a[1])*t0]);
-      out.push([a[0] + (b[0]-a[0])*t1, a[1] + (b[1]-a[1])*t1]);
-    }
-    acc = e;
-  }
-  return out.length >= 2 ? out : null;
-}
-
 /* Guiones que avanzan mientras hay caudal. */
 function dashes(pts, key, q, color, w){
   if (!(q > 0.01) || REDUCED) return;
@@ -876,63 +787,29 @@ function dashes(pts, key, q, color, w){
   ctx.restore();
 }
 
-/* La interfase entre los dos lotes: un filete claro cruzado a la tubería. */
-function front(neo, core){
-  const n = neo.length, p = neo[n-1], o = neo[n-2];
-  const dx = p[0] - o[0], dy = p[1] - o[1], L = Math.hypot(dx, dy) || 1;
-  const nx = -dy / L, ny = dx / L, rr2 = core / 2 + 1;
-  ctx.save();
-  ctx.lineCap = 'butt';
-  ctx.strokeStyle = C.panel; ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(p[0] + nx * rr2, p[1] + ny * rr2);
-  ctx.lineTo(p[0] - nx * rr2, p[1] - ny * rr2);
-  ctx.stroke();
-  ctx.restore();
-}
-
-/* Tramo de tubería sanitaria: casco, interior y las dos columnas de líquido.
-   `fill` es la fracción del tramo lógico que ya lleva lote B; `a` y `b` dicen
-   qué parte de ese tramo lógico cubre este trozo dibujado, porque un ramal se
-   dibuja en tres pedazos pero para el frente es uno solo. */
-function pipe(pts, w, key, q, fill, a = 0, b = 1){
+/* Tramo de tubería sanitaria: casco, interior y la columna de líquido. Toda la
+   línea lleva la misma solución, así que va de un solo color; lo único que la
+   tubería cuenta es si por ella está pasando caudal o no. */
+function pipe(pts, w, key, q){
   ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   poly(pts); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = w + 5; ctx.stroke();
   poly(pts); ctx.strokeStyle = C.bore;      ctx.lineWidth = w + 1; ctx.stroke();
 
-  const core = Math.max(2, w - 3);
-  const moving = q > 0.01;
-  const f = b > a ? clamp((clamp(fill, 0, 1) - a) / (b - a), 0, 1) : (fill >= 1 ? 1 : 0);
-
-  if (f < 1){
-    const old = subPoly(pts, f, 1);
-    if (old){
-      poly(old); ctx.strokeStyle = moving ? C.old : C['old-dim'];
-      ctx.lineWidth = core; ctx.stroke();
-      dashes(old, key + 'a', q, C['old-hi'], w);
-    }
-  }
-  if (f > 0){
-    const neo = subPoly(pts, 0, f);
-    if (neo){
-      poly(neo); ctx.strokeStyle = moving ? C.fluid : C['fluid-dim'];
-      ctx.lineWidth = core; ctx.stroke();
-      dashes(neo, key + 'b', q, C['fluid-hi'], w);
-      if (f < 1) front(neo, core);
-    }
-  }
+  poly(pts); ctx.strokeStyle = q > 0.01 ? C.fluid : C['fluid-dim'];
+  ctx.lineWidth = Math.max(2, w - 3); ctx.stroke();
+  dashes(pts, key, q, C['fluid-hi'], w);
 }
 
-/* El chorro de la boquilla, del color del lote que esté saliendo. */
-function stream(x, y0, y1, q, seed, isNew){
+/* El chorro de la boquilla. */
+function stream(x, y0, y1, q, seed){
   if (q <= 0.01) return;
   const w = 2.5 + Math.min(3.5, q / 6);
   ctx.lineCap = 'round';
-  ctx.strokeStyle = isNew ? C.fluid : C.old; ctx.lineWidth = w;
+  ctx.strokeStyle = C.fluid; ctx.lineWidth = w;
   ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
   if (!REDUCED){
     const ph = (S.rt * 130 * (q / Q_FLUSH) + seed * 7) % 22;
-    ctx.strokeStyle = isNew ? C['fluid-hi'] : C['old-hi'];
+    ctx.strokeStyle = C['fluid-hi'];
     ctx.lineWidth = Math.max(1, w - 1.6);
     for (let y = y0 - ph; y < y1; y += 22){
       const a = Math.max(y0, y), b = Math.min(y1, y + 8);
@@ -953,7 +830,7 @@ function vesselPath(v){
 }
 const yInVes = (v, V) => v.bot - clamp(V / TANK_CAP, 0, 1) * (v.bot - v.top);
 
-/* El tanque lleva el lote nuevo y su nivel baja con lo que se saca de la línea. */
+/* El tanque lleva la solución y su nivel baja con lo que se saca de la línea. */
 function drawVessel(v, V){
   const { cx, rx, top, bot, ry } = v;
 
@@ -1001,7 +878,7 @@ function valve(x, y){
 
 function drawTank(){
   drawVessel(VES, S.tank);
-  tankHead(VES, 'TANQUE DE GLUT', 'LOTE NUEVO', C.fluid, 'EN SERVICIO', C.fluid);
+  tankHead(VES, 'TANQUE DE GLUT', 'SOLUCIÓN', C.fluid, 'EN SERVICIO', C.fluid);
   valve(VES.cx, 210);
 
   // toma del transmisor en el fondo del tanque, y su señal a la carátula
@@ -1048,7 +925,7 @@ function drawPT(){
   ctx.beginPath(); ctx.moveTo(x + 10, y + 108); ctx.lineTo(x + w - 10, y + 108);
   ctx.strokeStyle = C.edge; ctx.lineWidth = 1; ctx.stroke();
 
-  row('EN SERVICIO', 'LOTE B', y + 126, C.fluid, F.cond(12, 700));
+  row('SOLUCIÓN', 'GLUT', y + 126, C.fluid, F.cond(12, 700));
   const open = openCount();
   row('GLUT ABIERTAS', open + ' / ' + GS_TOTAL, y + 144, C.sage, F.mono(12.5, 500));
 
@@ -1110,18 +987,15 @@ function drawRoom(i){
   const r  = S.rooms[i];
   const x0 = ROOM_X[i], y0 = ROOM_Y, w = ROOM_W, h = ROOM_H;
   const bx = branchX(i), lx = lastX(i);
-  const bf  = S.pipe.r[i] / BSEG[i];   // cuánto del ramal ya lleva lote B
-  const neu = atNozzle(i);             // ¿ya sale lote B por la boquilla?
-  const pushing = r.mode === 'flush' && !neu;
   const pend = pendOf(r);              // litros que todavía habría que purgar
 
   // bajante del cabezal: se traza antes del recinto para que la franja del
   // cuarto lo tape, como si la tubería entrara por el cielo raso
-  pipe([[bx, HDR_Y], [bx, y0 + 4]], 9, 'b' + i, r.q, bf, BR_A[0], BR_A[1]);
+  pipe([[bx, HDR_Y], [bx, y0 + 4]], 9, 'b' + i, r.q);
 
   // recinto del cuarto
   rr(ctx, x0, y0, w, h, 4); ctx.fillStyle = C.panel; ctx.fill();
-  ctx.strokeStyle = r.mode === 'flush' ? (pushing ? C.old : C.fluid) : C.edge;
+  ctx.strokeStyle = r.mode === 'flush' ? C.fluid : C.edge;
   ctx.lineWidth = r.mode === 'flush' ? 1.8 : 1.2; ctx.stroke();
 
   rr(ctx, x0, y0, w, 22, 4); ctx.save(); ctx.clip();
@@ -1133,8 +1007,7 @@ function drawRoom(i){
 
   /* El rótulo cuenta la historia del cuarto: acredita consumo, cubre su volumen
      y queda liberado, o queda pendiente hasta que le toca la purga. */
-  const chip = pushing            ? ['DESPLAZANDO', C['old-ink']]
-             : r.mode === 'flush' ? ['FLUSHING', C.fluid]
+  const chip = r.mode === 'flush' ? ['FLUSHING', C.fluid]
              : r.sub === 'setup'  ? ['PREPARANDO', C['ink-3']]
              : r.sub === 'settle' ? ['CIERRE', C['ink-3']]
              : r.done             ? ['COMPLETA', C.sage]
@@ -1147,11 +1020,10 @@ function drawRoom(i){
   txt(chip[0], x0 + w - 9 - cw / 2, y0 + 14.5, F.cond(9.5, 600), chip[1], 'center');
 
   // ramal por dentro del cuarto, ya sobre el recinto
-  pipe([[bx, y0 + 22], [bx, y0 + 40], [lx, y0 + 40]], 9, 'r' + i, r.q, bf, BR_A[1], BR_A[2]);
+  pipe([[bx, y0 + 22], [bx, y0 + 40], [lx, y0 + 40]], 9, 'r' + i, r.q);
 
   /* Las Glut Stations del ramal: cada una abre y cierra por su cuenta, y lo que
-     sale por ahí —del color del lote que va saliendo— es justo lo que la
-     aplicación acredita contra el flushing. */
+     sale por ahí es justo lo que la aplicación acredita contra el flushing. */
   ctx.lineCap = 'round';
   const px = pouX(i);
   const liveGS = r.mode === 'use';
@@ -1161,16 +1033,16 @@ function drawRoom(i){
     ctx.beginPath(); ctx.moveTo(gsx, y0 + 40); ctx.lineTo(gsx, y0 + 49); ctx.stroke();
     ctx.beginPath(); ctx.arc(gsx, y0 + 52, 3, 0, Math.PI * 2);
     ctx.fillStyle = on ? C.sage : C.metal; ctx.fill();
-    if (on) stream(gsx, y0 + 56, y0 + 71, Q_GS * GSK[i], k + i * 7, neu);
+    if (on) stream(gsx, y0 + 56, y0 + 71, Q_GS * GSK[i], k + i * 7);
   }
 
-  // último POU: bajada, boquilla y chorro, del color del lote que sale
+  // último POU: bajada, boquilla y chorro
   const qLast = r.mode === 'flush' ? r.q
               : liveGS ? (gsOpen(i, px.length - 1, S.t) ? Q_GS * GSK[i] : 0)
               : r.q;
-  pipe([[lx, y0 + 40], [lx, y0 + 54]], 9, 'l' + i, r.q, bf, BR_A[2], BR_A[3]);
+  pipe([[lx, y0 + 40], [lx, y0 + 54]], 9, 'l' + i, r.q);
   rr(ctx, lx - 6, y0 + 50, 12, 8, 2); ctx.fillStyle = C['edge-2']; ctx.fill();
-  stream(lx, y0 + 60, r.mode === 'flush' ? y0 + 90 : y0 + 94, qLast, i, neu);
+  stream(lx, y0 + 60, r.mode === 'flush' ? y0 + 90 : y0 + 94, qLast, i);
 
   if (r.mode === 'flush'){
     const g = y0 + 90;
@@ -1179,7 +1051,7 @@ function drawRoom(i){
     ctx.lineTo(lx + 8, g + 18); ctx.lineTo(lx - 8, g + 18); ctx.closePath();
     ctx.fillStyle = C.bore; ctx.fill();
     ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.strokeStyle = neu ? C.fluid : C.old;
+    ctx.strokeStyle = C.fluid;
     for (let k = -12; k <= 12; k += 8){
       ctx.beginPath(); ctx.moveTo(lx + k, g + 2); ctx.lineTo(lx + k * .55, g + 15); ctx.stroke();
     }
@@ -1189,7 +1061,7 @@ function drawRoom(i){
     if (r.mode === 'use' && r.vessel > 0){
       const f = clamp(r.vessel / 10, 0, 1);
       ctx.save(); rr(ctx, vx + 1.5, vy + 1.5, vw - 3, vh - 3, 1.5); ctx.clip();
-      ctx.fillStyle = neu ? C.fluid : C.old;
+      ctx.fillStyle = C.fluid;
       ctx.fillRect(vx, vy + vh - f * (vh - 3), vw, f * (vh - 3));
       ctx.restore();
     }
@@ -1208,16 +1080,15 @@ function drawRoom(i){
 
   // pie del cuarto
   if (r.mode === 'flush'){
-    const p  = clamp(r.vol / r.goal, 0, 1);
-    const col = neu ? C.fluid : C['old-ink'];
-    txt(n0(r.vol) + ' / ' + n0(r.goal) + ' L purgados', x0 + 10, y0 + 146, F.mono(11.5, 500), col);
+    const p = clamp(r.vol / r.goal, 0, 1);
+    txt(n0(r.vol) + ' / ' + n0(r.goal) + ' L purgados', x0 + 10, y0 + 146,
+        F.mono(11.5, 500), C.fluid);
     rr(ctx, x0 + 10, y0 + 150, w - 20, 6, 3); ctx.fillStyle = C.bore; ctx.fill();
     ctx.save(); rr(ctx, x0 + 10, y0 + 150, w - 20, 6, 3); ctx.clip();
     ctx.fillStyle = C.fluid; ctx.fillRect(x0 + 10, y0 + 150, (w - 20) * p, 6);
     ctx.restore();
-    txt(neu ? 'ya sale lote B por la boquilla'
-            : 'empujando lote A · faltan ' + n0(BSEG[i] - S.pipe.r[i]) + ' L',
-        x0 + 10, y0 + 168, F.cond(11, 600), col);
+    txt('faltan ' + n0(r.goal - r.vol) + ' L · ' + n1(r.q) + ' L/min',
+        x0 + 10, y0 + 168, F.cond(11, 600), C.fluid);
   } else {
     /* La cuenta del cuarto: cuánto lleva acreditado contra su volumen validado,
        y cuánto quedaría por purgar si hubiera que purgar. */
@@ -1262,11 +1133,9 @@ function drawScene(){
 
   // del tanque al cabezal, y el cabezal hasta el último ramal
   pipe([[VES.cx, VES.bot + VES.ry], [VES.cx, MAN_Y],
-        [ELB_X, MAN_Y], [ELB_X, HDR_Y], [branchX(0), HDR_Y]],
-       12, 'h0', seg[0], S.pipe.h[0] / HSEG[0]);
+        [ELB_X, MAN_Y], [ELB_X, HDR_Y], [branchX(0), HDR_Y]], 12, 'h0', seg[0]);
   for (let i = 1; i <= 4; i++)
-    pipe([[branchX(i-1), HDR_Y], [branchX(i), HDR_Y]], 12, 'h' + i, seg[i],
-         S.pipe.h[i] / HSEG[i]);
+    pipe([[branchX(i-1), HDR_Y], [branchX(i), HDR_Y]], 12, 'h' + i, seg[i]);
   drawTank();
   drawPump(250, MAN_Y);
   drawPT();
@@ -1388,8 +1257,7 @@ function drawTrace(){
       return;
     }
 
-    /* Preparación, purga y cierre. Aquí la purga no lleva tramo de empuje: el
-       consumo de la ventana ya sacó el lote anterior de la línea. */
+    // preparación, purga y cierre de la estación
     seg(g, s.setup, s.flush,  y + 4, ROW_H - 8, C['panel-2'], C['edge-2']);
     seg(g, s.end,   s.settle, y + 4, ROW_H - 8, C['panel-2'], C['edge-2']);
     const fs = seg(g, s.flush, s.end, y + 3, ROW_H - 6, C.fluid, null);
@@ -1508,11 +1376,11 @@ const READ = {
   h1: 'El consumo del cuarto descuenta el flushing',
   lede: 'El volumen mínimo de flushing tiene que <b>pasar por la línea</b> del cuarto; no tiene ' +
     'que salir por la manguera de la purga. Si cada Glut Station mide lo que el cuarto saca, ese ' +
-    'consumo se puede acreditar: la tubería se va desplazando sola, el fluido del lote anterior ' +
-    'baja por su cuenta y el <b>flushing pendiente se reduce litro a litro</b>. Con los consumos ' +
+    'consumo se puede acreditar: por la tubería pasó el mismo volumen, la línea se fue renovando ' +
+    'sola y el <b>flushing pendiente se reduce litro a litro</b>. Con los consumos ' +
     'de estos cinco cuartos, <b>CR1 y CR2 no necesitan purga</b> y la campaña pasa de 1 383 L a ' +
     '326 L.',
-  key: 'Cada <strong>Glut Station</strong> mide lo que saca, y ese consumo <strong>desplaza la ' +
+  key: 'Cada <strong>Glut Station</strong> mide lo que saca, y ese consumo <strong>pasa por la ' +
     'línea y descuenta flushing</strong>. Al cerrar la ventana de lectura solo se purga lo que ' +
     'quedó pendiente.',
   tbl: 'La orden de trabajo. <b>Consumo acreditado</b> son los litros que el cuarto sacó ' +
@@ -1523,16 +1391,15 @@ const READ = {
   p: 'La validación de cada cuarto pide que pase por su línea un volumen mínimo, no que ese ' +
     'volumen salga por una manguera concreta. Hoy no se puede acreditar el consumo del cuarto ' +
     'porque el único instrumento está en el tanque y no distingue por cuál boquilla salió el ' +
-    'líquido. Con un flujómetro en <strong>cada Glut Station</strong> sí: al cambiar el lote se ' +
-    'abre una ventana de lectura, cada estación totaliza lo suyo, la aplicación lo suma por cuarto ' +
+    'líquido. Con un flujómetro en <strong>cada Glut Station</strong> sí: se abre una ventana de ' +
+    'lectura, cada estación totaliza lo suyo, la aplicación lo suma por cuarto ' +
     'y lo descuenta del volumen validado. <strong>CR1 y CR2, con seis estaciones cada uno, cubren ' +
     'su volumen ellos solos y no se purgan</strong>; TRAINING, CR3 y CR4 solo purgan lo que les ' +
-    'faltó. Y como ese consumo ya vació la línea del lote anterior, la purga tampoco paga litros ' +
-    'de desplazamiento.',
+    'faltó, y ni un litro más.',
   l: [
     ['Instrumento', 'Un flujómetro en cada una de las 25 Glut Stations'],
     ['Método', 'Descontar del volumen validado lo que el cuarto ya consumió'],
-    ['Desplazamiento', 'Ya lo hizo el consumo: la purga no paga ningún litro de empuje'],
+    ['Ventana de lectura', '60 min de operación normal antes de emitir la orden de trabajo'],
     ['Campaña', 'De 1 383 L a 326 L · de 5 estaciones a 3 · de 1 h 47 min a 36 min'],
     ['Costo', 'Cero minutos de planta detenida']
   ]
@@ -1569,16 +1436,10 @@ function phaseNow(){
   const s = S.sch[i], r = S.rooms[i];
   if (t < s.flush)  return ['is-run', 'Preparando ' + r.name,
                             'Se conecta la manguera al último POU del ramal, ' + r.tag + '.'];
-  if (t < s.end){
-    /* Con la línea ya desplazada por el consumo, la purga debería salir en lote
-       B desde el primer litro; si no, es que a ese ramal aún le quedaba lote A. */
-    const pushing = !atNozzle(i);
-    return ['is-run',
-            pushing ? 'Empujando el lote A en ' + r.name
-                    : 'Flushing en ' + r.name + ' · meta ' + n0(r.goal) + ' L',
-            pushing ? 'A este ramal todavía le quedan ' + n0(BSEG[i] - S.pipe.r[i]) + ' L de lote anterior por sacar.'
-                    : 'Son los ' + n0(r.goal) + ' L que le faltaron a ' + r.name + ' después de descontar sus ' + n0(CRED[i]) + ' L de consumo.'];
-  }
+  if (t < s.end)
+    return ['is-run', 'Flushing en ' + r.name + ' · meta ' + n0(r.goal) + ' L',
+            'Son los ' + n0(r.goal) + ' L que le faltaron a ' + r.name +
+            ' después de descontar sus ' + n0(CRED[i]) + ' L de consumo.'];
   if (t < s.settle) return ['is-run', 'Cerrando ' + r.name,
                             'El totalizador ya tiene el volumen; no hay que esperar al tanque.'];
   return ['is-run', 'Campaña completa',
@@ -1687,7 +1548,7 @@ function syncPlayBtn(){
 }
 
 /* El botón del escenario es uno solo, así que lo único que puede hacer es
-   volver a empezar la corrida desde el cambio de lote. */
+   volver a empezar la corrida desde el inicio de la ventana de lectura. */
 $('#btnScen').addEventListener('click', () => { reset(); S.playing = true; syncPlayBtn(); });
 $('#btnPlay').addEventListener('click', () => {
   if (S.t >= T_END) reset();

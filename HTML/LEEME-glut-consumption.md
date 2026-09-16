@@ -9,26 +9,27 @@ que hay que hacer. Un solo escenario, sin selector: lo que se ve al abrirla es l
 
 Se abre con doble clic. Es un solo archivo, sin instalación, sin servidor y sin
 nada que descargar, y funciona sin conexión. Lo que `LEEME.md` explica del
-sistema —el cabezal, los ramales y el empuje del lote nuevo sobre el anterior—
-vale igual aquí; este documento solo cuenta lo que es propio de esta animación.
+sistema —el cabezal, los ramales y las Glut Stations de cada cuarto— vale igual
+aquí; este documento solo cuenta lo que es propio de esta animación.
 
-Dos diferencias de esquema con la original, ninguna de fondo: aquí hay **un solo
-tanque**, cargado con el lote nuevo y en servicio, en vez del par de tanques con
-manifold; y el cabezal **termina en el ramal de CR4**, sin el tramo ciego que la
-original dibujaba para enseñar que esa tubería se queda con lote anterior para
-siempre. La línea sigue arrancando llena del lote anterior, que es lo que el
-consumo de los cuartos va sacando.
+El esquema está simplificado respecto a la original, que trata del cambio de
+lote. Aquí **no hay cambio de lote**: hay **un solo tanque**, con la solución de
+GLUT, y **un solo fluido de un solo color** en toda la línea, sin la solución
+anterior en ámbar ni el frente que la empuja. El cabezal, además, **termina en el
+ramal de CR4**, sin el tramo ciego que no alimenta nada. Lo que esta animación
+cuenta no necesita nada de eso: cuánto sale por cada Glut Station y cuánto
+flushing descuenta.
 
 ## De qué va
 
 El volumen mínimo de flushing es un volumen que tiene que **pasar por la línea**
 del cuarto. No exige que salga por la manguera de la purga: si el propio cuarto
-lo saca por sus Glut Stations, la tubería queda igual de desplazada y el fluido
-del lote anterior va bajando solo. Lo que hoy impide acreditarlo es que el único
-instrumento está en el tanque y no distingue por cuál boquilla salió el líquido.
+lo saca por sus Glut Stations, por la tubería pasó el mismo volumen y la línea se
+renovó igual. Lo que hoy impide acreditarlo es que el único instrumento está en
+el tanque y no distingue por cuál boquilla salió el líquido.
 
-Con un flujómetro en cada Glut Station sí se puede. Al cambiar el lote se abre
-una **ventana de lectura**: cada estación totaliza lo suyo, la aplicación lo suma
+Con un flujómetro en cada Glut Station sí se puede. Se abre una **ventana de
+lectura**: cada estación totaliza lo suyo, la aplicación lo suma
 por cuarto y lo descuenta del volumen validado. Al cerrar la ventana solo se
 purga lo que faltó.
 
@@ -58,7 +59,6 @@ Contra la campaña de hoy, que es la que muestra `flushing.html`:
 | Qué mide | El volumen de todo el tanque | Lo que saca el cuarto por todas sus estaciones |
 | Estaciones que se purgan | 5 | **3** |
 | Volumen de la campaña | 1383 L | **326 L** |
-| Desplazamiento del lote A | 329 L | **0 L**: el consumo ya vació la línea |
 | Duración del trabajo | ≈ 1 h 47 min | **≈ 36 min** |
 | Producción detenida | **2 h 00 min** | **0 min** |
 
@@ -108,13 +108,13 @@ concreto durante una presentación:
 
 ## Supuestos nuevos, que conviene revisar antes de presentarla
 
-Los de `LEEME.md` siguen valiendo, salvo los dos cambios de esquema de arriba:
-un solo tanque y el cabezal terminando en el ramal de CR4. Estos son los
-supuestos propios de esta animación:
+Los de `LEEME.md` siguen valiendo, salvo los cambios de esquema de arriba: un
+solo tanque, un solo fluido y el cabezal terminando en el ramal de CR4. Estos son
+los supuestos propios de esta animación:
 
 | Supuesto | Valor usado |
 |---|---|
-| Tanques | Uno solo, en servicio con el lote nuevo (6000 L, Ø 1,80 m) |
+| Tanques | Uno solo, con la solución de GLUT (6000 L, Ø 1,80 m) |
 | Glut Stations por cuarto | Training 4, CR1 6, CR2 6, CR3 4, CR4 5 |
 | Ventana de lectura del consumo | 60 min |
 | Caudal de una Glut Station abierta | ≈ 4,5 L/min, en tramos de 30 s |
