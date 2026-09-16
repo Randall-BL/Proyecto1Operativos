@@ -82,10 +82,18 @@ Contra la campaña de hoy, que es la que muestra `flushing.html`:
   instante, no un rótulo fijo.** La banda de la planta cuenta hacia abajo desde
   los 1383 L conforme los cuartos consumen, se queda en los 326 L de la orden de
   trabajo al cerrar la ventana, y de ahí baja hasta `FLUSHING COMPLETO`. El
-  bloque de cada cuarto arranca en su pendiente, se va descontando mientras la
-  boquilla está abierta y termina en `HECHO`.
+  bloque de cada cuarto arranca en su volumen validado, se va descontando con el
+  consumo primero y con la boquilla después, y termina en `HECHO`.
+
+  **Y nada se adelanta.** El rótulo `SIN FLUSHING · VOLUMEN CUBIERTO POR EL
+  CONSUMO` no está desde el principio: aparece en el instante en que ese cuarto
+  llega a su volumen validado —CR2 en el minuto 44, CR1 en el 51—. Hasta
+  entonces su fila no dice nada de lo que va a pasar.
 - **En la tabla del pie**, que deja de ser un cronograma y pasa a ser la orden de
   trabajo: estaciones, volumen validado, consumo acreditado y flushing pendiente.
+  También se llena sola: el acreditado sube y el pendiente baja con cada litro, y
+  la columna de duración va en `—` hasta que se sabe —al cerrar la ventana, o
+  antes si el cuarto ya cubrió su volumen y quedó `sin flushing`—.
 
 El consumo posterior al cierre de la ventana no se descuenta: queda de margen.
 Por eso el totalizador de cada cuarto se congela en ese punto aunque las

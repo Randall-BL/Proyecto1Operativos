@@ -687,7 +687,7 @@ function reset(){
   S.sch = b.sch; S.workEnd = b.workEnd;
   S.t = 0; S.tank = TANK_0; S.noise = 0;
   S.hover = null;
-  S.dash = {};
+  S.dash = {}; S.tableSig = null;
   S.rooms = ROOMS.map((r,i) => ({
     ...r, i, mode:'closed', sub:null, q:0, vol:0, vessel:0,
     goal: NEED[i], used: 0, nOpen: 0, done: false
@@ -1262,9 +1262,13 @@ function drawTrace(){
     g.fillText(n0(cred) + ' / ' + r.target + ' L', a.x + a.w / 2, y + 16);
 
     if (!s){
-      /* Cuarto liberado: su propio consumo cubrió el volumen validado. */
-      g.textAlign = 'left'; g.font = F.cond(11, 700); g.fillStyle = C.sage;
-      g.fillText('SIN FLUSHING · VOLUMEN CUBIERTO POR EL CONSUMO', gx(ACC) + 8, y + 16);
+      /* Que un cuarto se libere no es un dato de partida: se sabe en el instante
+         en que su consumo llega al volumen validado —CR2 en el minuto 44, CR1 en
+         el 51—, y hasta entonces la fila no adelanta nada. */
+      if (r.used >= r.target){
+        g.textAlign = 'left'; g.font = F.cond(11, 700); g.fillStyle = C.sage;
+        g.fillText('SIN FLUSHING · VOLUMEN CUBIERTO POR EL CONSUMO', gx(ACC) + 8, y + 16);
+      }
       seg(g, 0, T_END, y, ROW_H, null, C.edge);
       return;
     }
@@ -1328,8 +1332,11 @@ function hoverInfo(mx, my){
       return { k:r.name, v:'Consumo acreditado · ' + n0(CRED[i]) + ' de ' + r.target + ' L',
                w: r.gs + ' Glut Stations' };
     if (!s)
-      return { k:r.name, v:'Sin flushing · volumen cubierto por el consumo',
-               w: n0(CRED[i]) + ' L acreditados' };
+      return r.used >= r.target
+        ? { k:r.name, v:'Sin flushing · volumen cubierto por el consumo',
+            w: n0(Math.min(r.used, r.target)) + ' L acreditados' }
+        : { k:r.name, v:'Acreditando consumo',
+            w: n0(r.used) + ' de ' + r.target + ' L' };
     if (mx >= gx(s.setup) && mx < gx(s.flush))
       return { k:r.name, v:'Preparación', w:hms(s.setup) + ' – ' + hms(s.flush) };
     if (mx >= gx(s.flush) && mx < gx(s.end))
@@ -1366,23 +1373,34 @@ trace.addEventListener('mousemove', e => {
 });
 trace.addEventListener('mouseleave', () => { S.hover = null; });
 
-/* La tabla del pie no es un cronograma: es la orden de trabajo. Lo que cada
-   cuarto ya acreditó con su consumo y el flushing que le queda. */
+/* La tabla del pie no es un cronograma: es la orden de trabajo, y se va
+   llenando como se llena de verdad. Mientras la ventana de lectura sigue
+   abierta, el acreditado sube y el pendiente baja con cada litro; la duración
+   solo aparece cuando ya se sabe —al cerrar la ventana, o antes si el cuarto
+   cubrió su volumen y quedó sin flushing—. */
 function drawTable(){
   const head = ['Estación', 'Glut Stations', 'Volumen validado', 'Consumo acreditado',
                 'Flushing pendiente', 'Duración'];
   $('#thead').innerHTML = head.map(h => '<th>' + h + '</th>').join('');
 
+  const cerrada = S.t >= ACC;
+  let cred = 0, pend = 0;
   const rows = S.rooms.map((r,i) => {
     const s = S.sch[i];
+    const c = Math.min(r.used, r.target), p = pendOf(r);
+    cred += c; pend += p;
+    /* «sin flushing» solo se sabe cuando el cuarto llega a su volumen; la
+       duración, cuando cierra la ventana. Antes de eso la casilla va vacía. */
+    const dur = !(cerrada || c >= r.target) ? '—'
+              : s ? Math.round(s.dur / 60) + ' min' : 'sin flushing';
     return '<tr><td>' + r.name + '</td><td>' + r.gs + '</td><td>' + r.target +
-           ' L</td><td>' + n0(CRED[i]) + ' L</td><td>' + n0(NEED[i]) + ' L</td><td>' +
-           (s ? Math.round(s.dur / 60) + ' min' : 'sin flushing') + '</td></tr>';
+           ' L</td><td>' + n0(c) + ' L</td><td>' + n0(p) + ' L</td><td>' +
+           dur + '</td></tr>';
   }).join('');
   $('#tbody').innerHTML = rows +
     '<tr class="tot"><td>Campaña</td><td>' + GS_TOTAL + '</td><td>' + n0(TOTAL) +
-    ' L</td><td>' + n0(CRED_TOTAL) + ' L</td><td>' + n0(NEED_TOTAL) + ' L</td><td>' +
-    Math.round((S.workEnd - ACC) / 60) + ' min</td></tr>';
+    ' L</td><td>' + n0(cred) + ' L</td><td>' + n0(pend) + ' L</td><td>' +
+    (cerrada ? Math.round((S.workEnd - ACC) / 60) + ' min' : '—') + '</td></tr>';
 }
 
 /* ======================================================================
@@ -1516,6 +1534,12 @@ function paintPanels(){
     : (doneN >= nEst ? 'Las ' + nEst + ' estaciones, completas'
                      : 'Estación ' + ord + ' de ' + nEst + ' · ' + R[act].name +
                        ' · ' + doneN + (doneN === 1 ? ' completada' : ' completadas'));
+
+  /* La tabla se rehace solo cuando alguna de sus cifras cambia de litro: son
+     unas pocas veces por segundo, no sesenta. */
+  const sig = R.map(x => n0(Math.min(x.used, x.target)) + '/' + n0(pendOf(x))).join() +
+              (S.t >= ACC ? '|c' : '');
+  if (sig !== S.tableSig){ S.tableSig = sig; drawTable(); }
 
   // el aviso, en cuanto cierra la ventana: lo que el consumo se ahorró
   const al = $('#alert');
