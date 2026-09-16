@@ -2,15 +2,16 @@
 
 `glut-consumption.html` es una animación aparte, hermana de `flushing.html`. No
 reemplaza a la original: aquella muestra por qué el flushing detiene la planta
-dos horas, y esta añade encima un tercer escenario, **Glut Consumption**, donde
-se mide lo que cada cuarto saca por sus Glut Stations y ese consumo se descuenta
-del flushing que hay que hacer.
+dos horas, y esta muestra una sola cosa, **Glut Consumption**, que es medir lo
+que cada cuarto saca por sus Glut Stations y descontar ese consumo del flushing
+que hay que hacer. Un solo escenario, sin selector: lo que se ve al abrirla es lo
+único que hay.
 
 Se abre con doble clic. Es un solo archivo, sin instalación, sin servidor y sin
 nada que descargar, y funciona sin conexión. Todo lo que `LEEME.md` explica del
-sistema —los dos tanques, el manifold, el cabezal, los ramales, el empuje del
-lote B sobre el lote A, la resta V<sub>I</sub> − V<sub>F</sub> y el PT-100— vale
-igual aquí; este documento solo cuenta lo que es nuevo.
+sistema —los dos tanques, el manifold, el cabezal, los ramales y el empuje del
+lote B sobre el lote A— vale igual aquí; este documento solo cuenta lo que es
+propio de esta animación.
 
 ## De qué va
 
@@ -43,20 +44,22 @@ CR1 y CR2, con seis estaciones cada uno, cubren su volumen validado ellos solos:
 CR1 lo cruza en el minuto 51 y CR2 en el 44. De ahí en adelante quedan liberados
 y el cronograma ni siquiera les abre fila de purga.
 
-| | **Hoy** | **Con la aplicación** | **Glut Consumption** |
-|---|---|---|---|
-| Instrumento | PT-100 en el tanque | Flujómetro en la Glut final de cada cuarto | Flujómetro en **cada una de las 25 Glut Stations** |
-| Qué mide | El volumen de todo el tanque | Lo que sale por esa boquilla | Lo que saca el cuarto por todas sus estaciones |
-| Estaciones que se purgan | 5 | 5 | **3** |
-| Volumen de la campaña | 1383 L | 1383 L | **326 L** |
-| Desplazamiento del lote A | 329 L | 329 L | **0 L**: el consumo ya vació la línea |
-| Duración del trabajo | ≈ 1 h 47 min | ≈ 1 h 47 min | **≈ 36 min** |
-| Producción detenida | **2 h 00 min** | 0 min | 0 min |
+Contra la campaña de hoy, que es la que muestra `flushing.html`:
+
+| | **Hoy** (`flushing.html`) | **Glut Consumption** |
+|---|---|---|
+| Instrumento | PT-100 en el tanque | Flujómetro en **cada una de las 25 Glut Stations** |
+| Qué mide | El volumen de todo el tanque | Lo que saca el cuarto por todas sus estaciones |
+| Estaciones que se purgan | 5 | **3** |
+| Volumen de la campaña | 1383 L | **326 L** |
+| Desplazamiento del lote A | 329 L | **0 L**: el consumo ya vació la línea |
+| Duración del trabajo | ≈ 1 h 47 min | **≈ 36 min** |
+| Producción detenida | **2 h 00 min** | **0 min** |
 
 ## Qué se ve en pantalla
 
-- **Al lado del tanque**, donde en los otros escenarios va la vista de detalle de
-  V<sub>I</sub> − V<sub>F</sub>, aparece el **libro de consumo acreditado**: una
+- **Al lado del tanque**, donde en la animación original va la vista de detalle
+  de V<sub>I</sub> − V<sub>F</sub>, está el **libro de consumo acreditado**: una
   barra por cuarto contra su volumen validado, y abajo el pendiente total, que va
   bajando de 1383 L a 326 L mientras corre la ventana.
 - **En cada cuarto**, sus Glut Stations dibujadas una por una, abriendo y
@@ -77,29 +80,31 @@ estaciones sigan abiertas.
 
 ## Controles
 
-Los mismos que la animación original, con un escenario más.
-
 | | |
 |---|---|
-| Botones **Hoy / Con la aplicación / Glut Consumption** | Cambian de escenario y reinician la corrida |
+| Botón **Glut Consumption** | Es el rótulo del escenario; al pulsarlo vuelve a empezar la corrida |
 | **Pausar / Reproducir**, **Reiniciar** | Control de la corrida |
 | **×30 / ×120 / ×300** | Aceleración del reloj respecto al tiempo real |
 | Barra espaciadora | Pausar o reproducir |
 | Tecla **R** | Reiniciar |
-| Teclas **1**, **2** y **3** | Escenario 1 (hoy), 2 (con la aplicación) y 3 (Glut Consumption) |
 | Puntero sobre el cronograma | Qué está haciendo cada cuarto en ese momento |
 
 ### Enlaces directos
 
-- `glut-consumption.html#C` — abre directamente en Glut Consumption
-- `glut-consumption.html#C,3400` — con CR1 y CR2 ya cubiertos, antes del cierre
-  de la ventana
-- `glut-consumption.html#C,4300` — justo después del cierre, con la orden de
+El instante se puede fijar en la URL, lo cual sirve para saltar a un momento
+concreto durante una presentación:
+
+- `glut-consumption.html#3400` — con CR1 y CR2 ya cubiertos, antes del cierre de
+  la ventana
+- `glut-consumption.html#4300` — justo después del cierre, con la orden de
   trabajo de 326 L ya emitida
+- `glut-consumption.html#5100` — con CR4 purgando sus 177 L
 
 ## Supuestos nuevos, que conviene revisar antes de presentarla
 
-Los de `LEEME.md` siguen valiendo. Estos son los que añade este escenario:
+Los de `LEEME.md` siguen valiendo, salvo el tramo ciego: aquí el cabezal termina
+en el ramal de CR4, porque esa tubería no alimenta nada. Estos son los supuestos
+propios de esta animación:
 
 | Supuesto | Valor usado |
 |---|---|
