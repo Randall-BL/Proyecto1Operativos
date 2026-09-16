@@ -8,10 +8,16 @@ que hay que hacer. Un solo escenario, sin selector: lo que se ve al abrirla es l
 único que hay.
 
 Se abre con doble clic. Es un solo archivo, sin instalación, sin servidor y sin
-nada que descargar, y funciona sin conexión. Todo lo que `LEEME.md` explica del
-sistema —los dos tanques, el manifold, el cabezal, los ramales y el empuje del
-lote B sobre el lote A— vale igual aquí; este documento solo cuenta lo que es
-propio de esta animación.
+nada que descargar, y funciona sin conexión. Lo que `LEEME.md` explica del
+sistema —el cabezal, los ramales y el empuje del lote nuevo sobre el anterior—
+vale igual aquí; este documento solo cuenta lo que es propio de esta animación.
+
+Dos diferencias de esquema con la original, ninguna de fondo: aquí hay **un solo
+tanque**, cargado con el lote nuevo y en servicio, en vez del par de tanques con
+manifold; y el cabezal **termina en el ramal de CR4**, sin el tramo ciego que la
+original dibujaba para enseñar que esa tubería se queda con lote anterior para
+siempre. La línea sigue arrancando llena del lote anterior, que es lo que el
+consumo de los cuartos va sacando.
 
 ## De qué va
 
@@ -102,12 +108,13 @@ concreto durante una presentación:
 
 ## Supuestos nuevos, que conviene revisar antes de presentarla
 
-Los de `LEEME.md` siguen valiendo, salvo el tramo ciego: aquí el cabezal termina
-en el ramal de CR4, porque esa tubería no alimenta nada. Estos son los supuestos
-propios de esta animación:
+Los de `LEEME.md` siguen valiendo, salvo los dos cambios de esquema de arriba:
+un solo tanque y el cabezal terminando en el ramal de CR4. Estos son los
+supuestos propios de esta animación:
 
 | Supuesto | Valor usado |
 |---|---|
+| Tanques | Uno solo, en servicio con el lote nuevo (6000 L, Ø 1,80 m) |
 | Glut Stations por cuarto | Training 4, CR1 6, CR2 6, CR3 4, CR4 5 |
 | Ventana de lectura del consumo | 60 min |
 | Caudal de una Glut Station abierta | ≈ 4,5 L/min, en tramos de 30 s |

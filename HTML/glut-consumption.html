@@ -151,8 +151,8 @@
 
   /* El cronograma va sobre el hueco libre del esquema, arriba a la derecha:
      los porcentajes corresponden a x 489..1341 e y 6..236 del lienzo. El
-     bloque de la izquierda creció para alojar los dos tanques, la carátula
-     del PT-100 y la vista de detalle de VI − VF. */
+     bloque de la izquierda aloja el tanque, el libro de consumo acreditado y
+     la carátula del PT-100. */
   .plot{position:absolute;left:35.96%;top:1.27%;width:62.65%}
   #trace{display:block;width:100%;height:auto;aspect-ratio:852/230;cursor:crosshair}
 
@@ -327,7 +327,7 @@
   }
   .read li em{font-style:normal;color:var(--ink);font-weight:700}
 
-  /* aviso que aparece cuando la resta del tanque se traga el consumo ajeno */
+  /* aviso con lo que el consumo de los cuartos ya había pagado */
   .alert{
     margin:0 0 13px;
     padding:10px 12px;
@@ -396,7 +396,7 @@
   <section class="stage" aria-label="Esquema animado de la línea y cronograma de la campaña">
     <div class="scenewrap">
       <canvas id="scene" width="1240" height="474" role="img"
-        aria-label="Esquema de los dos tanques de almacenamiento —el A con el lote anterior, aislado, y el B con el lote nuevo en servicio y su sensor de presión PT-100—, la vista de detalle de la resta VI menos VF, el cabezal de distribución y los cinco cuartos —Training, CR1, CR2, CR3 y CR4— cada uno con su ramal de puntos de uso y su Glut Station final. La solución del tanque B avanza por la tubería empujando a la del tanque A."></canvas>
+        aria-label="Esquema del tanque de GLUT, cargado con el lote nuevo y con su sensor de presión PT-100, el libro de consumo acreditado de los cinco cuartos, el cabezal de distribución y los cuartos —Training, CR1, CR2, CR3 y CR4— cada uno con sus Glut Stations. La solución nueva avanza por la tubería empujando a la del lote anterior conforme los cuartos consumen."></canvas>
       <div class="plot">
         <canvas id="trace" width="852" height="230" role="img"
           aria-label="Cronograma de la campaña de flushing: una fila por cuarto con su ventana de preparación, purga y lectura, y una banda superior que indica si la planta puede consumir."></canvas>
@@ -425,7 +425,7 @@
 
   <section class="tiles" aria-label="Instrumentos">
     <div class="tile">
-      <h3>Tanque B &middot; PT-100</h3>
+      <h3>Tanque de GLUT &middot; PT-100</h3>
       <div><span class="big" id="ptP">0,0</span><span class="unit">mbar</span></div>
       <div class="sub">Nivel <span id="ptH">0,000</span> m &nbsp;&middot;&nbsp; <span id="ptV">0</span> L de lote B</div>
       <span class="chip no" id="ptChip">Ninguna Glut abierta</span>
@@ -475,7 +475,7 @@
 
   <footer>
     <strong>Datos del esquema.</strong> Volúmenes mínimos de flushing y etiquetas del POU más lejano, tomados de la validación de cada cuarto: Training 120 L (DOC-0138892A), CR1 450 L y CR2 252 L (DOC-0185706A, DOC-0132700A), CR3 266 L (DOC-0216863A), CR4 295 L (DOC-0250796B, DOC-0565322A). Suman <strong>1383 L</strong> por campaña.
-    <br><strong>Supuestos de la animación.</strong> Cada tanque se modela como cilindro vertical de 6000 L y Ø 1,80 m (área 2,545 m²) con densidad 1010 kg/m³, de modo que presión, nivel y volumen se correspondan entre sí. El caudal de purga (18 L/min), los tiempos de preparación y lectura por estación, y los consumos de las Glut Stations en uso son valores representativos escogidos para que la campaña dure las dos horas conocidas; no divulgan parámetros de proceso. El reloj corre acelerado respecto al tiempo real.
+    <br><strong>Supuestos de la animación.</strong> El tanque se modela como cilindro vertical de 6000 L y Ø 1,80 m (área 2,545 m²) con densidad 1010 kg/m³, de modo que presión, nivel y volumen se correspondan entre sí. El caudal de purga (18 L/min), los tiempos de preparación y lectura por estación, y los consumos de las Glut Stations en uso son valores representativos escogidos para que la campaña dure las dos horas conocidas; no divulgan parámetros de proceso. El reloj corre acelerado respecto al tiempo real.
     <br><strong>Volumen de la línea.</strong> El desplazamiento del lote A se simula repartiendo un volumen de tubería por ramal igual a <strong>un tercio del volumen mínimo de flushing</strong> de ese cuarto —la regla habitual de purgar tres volúmenes de línea—: 40 L hasta Training, 150 L hasta CR1, 84 L hasta CR2, 89 L hasta CR3 y 98 L hasta CR4, de los cuales 58 L son cabezal compartido. Es un supuesto de la animación, no un dato medido: sirve para mostrar que los primeros litros de cada purga solo empujan la solución anterior. Conviene confirmarlo contra los isométricos de la línea antes de presentarla.
     <br><strong>Glut Consumption &middot; consumo acreditado.</strong> Cada cuarto tiene sus Glut Stations —<strong>Training 4, CR1 6, CR2 6, CR3 4 y CR4 5, 25 en total</strong>— y el volumen mínimo de flushing es un volumen que tiene que pasar por la línea del cuarto, sin importar por cuál de ellas salga. Con los consumos medidos que usa la animación —48 L en Training, 540 L en CR1, 360 L en CR2, 189 L en CR3 y 118 L en CR4 dentro de una ventana de lectura de 60 min— el crédito acumulado es de <strong>1 057 L</strong> y el flushing pendiente baja de 1 383 L a <strong>326 L</strong>: 0 L en CR1 y CR2, que cubren su volumen validado ellos solos, 72 L en Training, 77 L en CR3 y 177 L en CR4. Training y CR4 están puestos consumiendo el 40 % de su volumen. Los consumos por cuarto son el dato que hay que confirmar con la operación real; se cambian en la tabla <code>USED</code> al inicio del <code>&lt;script&gt;</code> y el escenario entero se recalcula solo.
     <br><strong>Atajos.</strong> Barra espaciadora: reproducir o pausar. Tecla R: reiniciar. El enlace <code>glut-consumption.html#4300</code> abre la animación en el segundo 4300, con la ventana de lectura ya cerrada.
@@ -528,10 +528,9 @@ const F = {
    1 · El sistema y la campaña
    ====================================================================== */
 
-/* Dos tanques alimentan el mismo cabezal a través de un manifold. El A guarda
-   el lote anterior y el B el lote nuevo; al arrancar la campaña se cierra A y
-   se abre B, de modo que la solución del B entra a la línea y va empujando a
-   la del A hasta sacarla por la boquilla. De ese cabezal cuelga un ramal por
+/* Un solo tanque alimenta el cabezal. Se carga con el lote nuevo, y la línea
+   sigue llena del lote anterior: cada litro que se saca por una boquilla mete
+   lote nuevo por arriba y empuja al viejo hasta sacarlo por el extremo. De ese cabezal cuelga un ramal por
    cuarto, cada uno con varios POU, y el flushing se ejecuta siempre en el
    último, que es el peor caso de desplazamiento de volumen en la tubería. La
    campaña recorre los cinco cuartos en secuencia: al terminar uno sigue el
@@ -561,15 +560,15 @@ const hdrCum = i => HSEG.slice(0, i + 1).reduce((a,b) => a + b, 0);
 const BSEG = ROOMS.map((r,i) => r.line - hdrCum(i));       // L de ramal
 const LINE_TOTAL = hdrCum(4) + BSEG.reduce((a,b) => a + b, 0);
 
-/* Tanques: cilindros verticales iguales. El PT-100 está en el que esté en
-   servicio —el B— y mide la presión hidrostática en el fondo; de ahí salen el
-   nivel y el volumen, y cada purga sale de la resta VI − VF. */
+/* El tanque: cilindro vertical. El PT-100 mide la presión hidrostática en el
+   fondo; de ahí salen el nivel y el volumen. En esta animación el tanque no
+   decide nada —lo que manda es el consumo medido en cada Glut Station—, pero se
+   dibuja porque es el instrumento que hay hoy. */
 const TANK_CAP  = 6000;   // L
 const TANK_AREA = 2.545;  // m² — Ø 1,80 m
 const RHO       = 1010;   // kg/m³
 const GRAV      = 9.81;   // m/s²
-const TANK_0    = 4500;   // L de lote nuevo en el tanque B al arrancar
-const TANK_A    = 1850;   // L de lote anterior que quedan en el A, aislado
+const TANK_0    = 4500;   // L de lote nuevo en el tanque al arrancar
 const levelOf = V => V / (TANK_AREA * 1000);          // m
 const pressOf = V => RHO * GRAV * levelOf(V) / 100;   // mbar
 
@@ -788,13 +787,11 @@ function update(dt){
    ====================================================================== */
 const W = 1360, H = 474;
 
-/* Los dos tanques, lado a lado, con sus bajantes a un manifold común. */
-const VES = {
-  A: { cx: 58,  rx:38, top:52, bot:186, ry:11 },
-  B: { cx:152,  rx:38, top:52, bot:186, ry:11 }
-};
-const MAN_Y  = 226;    // manifold bajo los tanques
-const ELB_X  = 460;    // codo por donde el manifold baja al cabezal
+/* El tanque, con su bajante a la línea de aspiración. */
+const VES    = { cx:104, rx:46, top:52, bot:186, ry:13 };
+const PT_X   = 32;     // toma del transmisor, a la izquierda del tanque
+const MAN_Y  = 226;    // línea de aspiración bajo el tanque
+const ELB_X  = 460;    // codo por donde esa línea baja al cabezal
 const HDR_Y  = 250;
 const PT_BOX  = { x:332, y:42, w:144, h:174 };   // carátula del PT-100
 const DET_BOX = { x:198, y:42, w:126, h:174 };   // detalle de VI − VF
@@ -944,7 +941,7 @@ function stream(x, y0, y1, q, seed, isNew){
   }
 }
 
-/* ----- los dos tanques y el transmisor de presión ----- */
+/* ----- el tanque y el transmisor de presión ----- */
 function vesselPath(v){
   const { cx, rx, top, bot, ry } = v;
   ctx.beginPath();
@@ -956,25 +953,21 @@ function vesselPath(v){
 }
 const yInVes = (v, V) => v.bot - clamp(V / TANK_CAP, 0, 1) * (v.bot - v.top);
 
-/* `live` distingue al tanque en servicio: el B lleva el lote nuevo y su nivel
-   se mueve; el A guarda el lote anterior y queda quieto mientras dura todo. */
-function drawVessel(v, V, live){
+/* El tanque lleva el lote nuevo y su nivel baja con lo que se saca de la línea. */
+function drawVessel(v, V){
   const { cx, rx, top, bot, ry } = v;
-  const body = live ? C.fluid       : C.old;
-  const dim  = live ? C['fluid-dim'] : C['old-dim'];
-  const hi   = live ? C['fluid-hi']  : C['old-hi'];
 
   vesselPath(v); ctx.fillStyle = C.bore; ctx.fill();
 
   const lvl = yInVes(v, V);
   ctx.save(); vesselPath(v); ctx.clip();
   const g = ctx.createLinearGradient(cx - rx, 0, cx + rx, 0);
-  g.addColorStop(0, dim); g.addColorStop(.45, body); g.addColorStop(1, dim);
+  g.addColorStop(0, C['fluid-dim']); g.addColorStop(.45, C.fluid); g.addColorStop(1, C['fluid-dim']);
   ctx.fillStyle = g;
   ctx.fillRect(cx - rx, lvl, rx * 2, bot + ry - lvl);
-  const bob = (REDUCED || !live) ? 0 : Math.sin(S.rt * 1.5) * 1.6;
+  const bob = REDUCED ? 0 : Math.sin(S.rt * 1.5) * 1.6;
   ctx.beginPath(); ctx.ellipse(cx, lvl + bob, rx, ry * .82, 0, 0, Math.PI * 2);
-  ctx.fillStyle = hi; ctx.globalAlpha = .55; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.fillStyle = C['fluid-hi']; ctx.globalAlpha = .55; ctx.fill(); ctx.globalAlpha = 1;
   ctx.restore();
 
   vesselPath(v); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 2; ctx.stroke();
@@ -983,8 +976,7 @@ function drawVessel(v, V, live){
     const y = bot - f * (bot - top);
     ctx.beginPath(); ctx.moveTo(cx + rx - 10, y); ctx.lineTo(cx + rx - 2, y); ctx.stroke();
   }
-  txt(n0(V) + ' L', cx, clamp(lvl + 16, top + 24, bot - 10), F.mono(12, 600),
-      live ? C.panel : C.ink, 'center');
+  txt(n0(V) + ' L', cx, clamp(lvl + 16, top + 24, bot - 10), F.mono(12, 600), C.panel, 'center');
 }
 
 function tankHead(v, title, sub, subCol, chip, chipCol){
@@ -998,39 +990,27 @@ function tankHead(v, title, sub, subCol, chip, chipCol){
   txt(chip, v.cx, 43, F.cond(9.5, 600), chipCol, 'center');
 }
 
-/* Válvula de la bajante de cada tanque: abierta la del B, cerrada la del A. */
-function valve(x, y, open){
-  const col = open ? C.fluid : C.metal;
-  poly([[x-9,y-7],[x-9,y+7],[x,y]]); ctx.fillStyle = col; ctx.fill();
-  poly([[x+9,y-7],[x+9,y+7],[x,y]]); ctx.fillStyle = col; ctx.fill();
+/* Válvula de la bajante del tanque, abierta mientras la línea está en servicio. */
+function valve(x, y){
+  poly([[x-9,y-7],[x-9,y+7],[x,y]]); ctx.fillStyle = C.fluid; ctx.fill();
+  poly([[x+9,y-7],[x+9,y+7],[x,y]]); ctx.fillStyle = C.fluid; ctx.fill();
   ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2;
   poly([[x-9,y-7],[x,y],[x-9,y+7]]); ctx.closePath(); ctx.stroke();
   poly([[x+9,y-7],[x,y],[x+9,y+7]]); ctx.closePath(); ctx.stroke();
-  if (!open){
-    ctx.strokeStyle = C.brand; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5);
-    ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5);
-    ctx.stroke();
-  }
 }
 
-function drawVessels(){
-  const A = VES.A, B = VES.B;
-  drawVessel(A, TANK_A, false);
-  drawVessel(B, S.tank, true);
-  tankHead(A, 'TANQUE A', 'LOTE ANTERIOR', C['old-ink'], 'AISLADO',     C['ink-3']);
-  tankHead(B, 'TANQUE B', 'LOTE NUEVO',    C.fluid,      'EN SERVICIO', C.fluid);
-  valve(A.cx, 210, false);
-  valve(B.cx, 210, true);
+function drawTank(){
+  drawVessel(VES, S.tank);
+  tankHead(VES, 'TANQUE DE GLUT', 'LOTE NUEVO', C.fluid, 'EN SERVICIO', C.fluid);
+  valve(VES.cx, 210);
 
-  // toma del transmisor en el fondo del tanque B, y su señal a la carátula
+  // toma del transmisor en el fondo del tanque, y su señal a la carátula
   ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(B.cx - B.rx, 176); ctx.lineTo(105, 176); ctx.stroke();
-  ctx.beginPath(); ctx.arc(105, 176, 6.5, 0, Math.PI * 2);
+  ctx.beginPath(); ctx.moveTo(VES.cx - VES.rx, 176); ctx.lineTo(PT_X, 176); ctx.stroke();
+  ctx.beginPath(); ctx.arc(PT_X, 176, 6.5, 0, Math.PI * 2);
   ctx.fillStyle = C.panel; ctx.fill();
   ctx.strokeStyle = C.fluid; ctx.lineWidth = 1.6; ctx.stroke();
-  txt('PT', 105, 179, F.cond(8.5, 700), C.fluid, 'center');
+  txt('PT', PT_X, 179, F.cond(8.5, 700), C.fluid, 'center');
 }
 
 function drawPump(x, y){
@@ -1052,7 +1032,7 @@ function drawPT(){
   ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.4; ctx.stroke();
   ctx.beginPath(); ctx.moveTo(x, y + 22); ctx.lineTo(x + w, y + 22);
   ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1; ctx.stroke();
-  txt('PT-100 · TANQUE B', x + 10, y + 15, F.cond(11.5, 600), C['ink-3']);
+  txt('PT-100 · TANQUE DE GLUT', x + 10, y + 15, F.cond(11, 600), C['ink-3']);
 
   const V = S.tank;
   txt(n1(pressOf(V) + S.noise * 0.1), x + w - 46, y + 58, F.mono(24, 500), C.fluid, 'right');
@@ -1280,18 +1260,14 @@ function drawScene(){
     seg.push(q);
   }
 
-  // pierna muerta del tanque A: sigue llena de lote A, con su válvula cerrada
-  pipe([[VES.A.cx, VES.A.bot + VES.A.ry], [VES.A.cx, MAN_Y], [VES.B.cx, MAN_Y]],
-       10, 'dead', 0, 0);
-
-  // del tanque B al cabezal, y el cabezal hasta el último ramal
-  pipe([[VES.B.cx, VES.B.bot + VES.B.ry], [VES.B.cx, MAN_Y],
+  // del tanque al cabezal, y el cabezal hasta el último ramal
+  pipe([[VES.cx, VES.bot + VES.ry], [VES.cx, MAN_Y],
         [ELB_X, MAN_Y], [ELB_X, HDR_Y], [branchX(0), HDR_Y]],
        12, 'h0', seg[0], S.pipe.h[0] / HSEG[0]);
   for (let i = 1; i <= 4; i++)
     pipe([[branchX(i-1), HDR_Y], [branchX(i), HDR_Y]], 12, 'h' + i, seg[i],
          S.pipe.h[i] / HSEG[i]);
-  drawVessels();
+  drawTank();
   drawPump(250, MAN_Y);
   drawPT();
   drawCredit();
