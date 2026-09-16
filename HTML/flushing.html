@@ -1,0 +1,1748 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flushing de la línea GLUT</title>
+<style>
+  /* Paleta y tipografía del template corporativo
+     «1121 - Template 6.06 - Presentation Template», tema "Edwards".
+     accent1 #C8102E · accent2 #898D8D · accent3 #346583 · accent4 #CEB888
+     accent5 #982E2F · accent6 #505759 · dk2 #94A596 · lt2 #A4BCC2 · Arial. */
+  :root{
+    --ground:#F2F3F3;      /* tinte del gris accent2 — fondo de página     */
+    --panel:#FFFFFF;       /* bg1 — tarjetas y lienzo                      */
+    --panel-2:#E9EBEB;     /* franjas y superficies elevadas               */
+    --bore:#E4E7E7;        /* interior de tubería y carátulas              */
+    --edge:#D5D8D8;        /* filete fino                                  */
+    --edge-2:#A9AEAE;      /* filete marcado, casco de acero               */
+    --ink:#16191A;         /* tx1 — texto principal                        */
+    --ink-2:#505759;       /* accent6                                      */
+    --ink-3:#6E7373;       /* paso oscuro de accent2, legible en 12 px     */
+    --fluid:#346583;       /* accent3 — la solución                        */
+    --fluid-hi:#7A99AC;    /* paso claro de accent3, usado en el template  */
+    --fluid-dim:#A8BCC7;   /* línea llena sin flujo                        */
+    --old:#B99B5E;         /* accent4 #CEB888 un paso oscuro — lote A      */
+    --old-hi:#DDC79A;      /* accent4 tal cual — frente que avanza         */
+    --old-dim:#D5BF92;     /* lote A en línea llena sin flujo              */
+    --old-ink:#7A6326;     /* accent4 oscurecido hasta 5,8:1 sobre blanco  */
+    --tint-old:#F4EEE0;    /* accent4 al 12 % — fondos                     */
+    --brand:#C8102E;       /* accent1 — rojo Edwards: paro, alarma, énfasis*/
+    --brand-dk:#982E2F;    /* accent5                                      */
+    --sage:#5E7263;        /* paso oscuro de dk2 — Glut Station en uso     */
+    --metal:#9AA0A0;       /* tubería y válvulas cerradas                  */
+    --tint-brand:#F8E0E4;  /* rojo al 13 % sobre blanco — banda detenida   */
+    --tint-sage:#DCE5DE;   /* salvia sobre blanco — banda de consumo normal*/
+
+    --fs:Arial,"Helvetica Neue",Helvetica,sans-serif;
+    --fc:Arial,"Helvetica Neue",Helvetica,sans-serif;
+    --fm:Arial,"Helvetica Neue",Helvetica,sans-serif;
+  }
+
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ground);
+    color:var(--ink);
+    font:400 15px/1.55 var(--fs);
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .app{
+    max-width:1300px;
+    margin:0 auto;
+    padding:22px 20px 40px;
+    display:flex;
+    flex-direction:column;
+    gap:14px;
+  }
+
+  /* ---------- encabezado ---------- */
+  .top{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:16px;
+    padding-bottom:14px;
+    border-bottom:1px solid var(--edge);
+  }
+  .brand h1{
+    margin:0;
+    font:700 29px/1.12 var(--fc);
+    color:var(--brand);
+    letter-spacing:-.005em;
+    text-wrap:balance;
+  }
+  .brand p{
+    margin:7px 0 0;
+    color:var(--ink-2);
+    font-size:13.5px;
+    max-width:68ch;
+  }
+  .eyebrow{
+    display:block;
+    font:700 11px/1 var(--fc);
+    letter-spacing:.16em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+    margin-bottom:8px;
+  }
+
+  /* ---------- selector de escenario ---------- */
+  .scen{display:flex;gap:0;border:1px solid var(--edge-2);border-radius:2px;overflow:hidden;background:var(--panel)}
+  .scen button{
+    appearance:none;
+    background:var(--panel);
+    border:0;
+    border-right:1px solid var(--edge-2);
+    color:var(--ink-3);
+    font:400 11.5px/1.3 var(--fc);
+    letter-spacing:.04em;
+    padding:10px 18px;
+    text-align:left;
+    cursor:pointer;
+    transition:background .15s,color .15s;
+  }
+  .scen button:last-child{border-right:0}
+  .scen button b{display:block;font-weight:700;font-size:14px;letter-spacing:0;color:var(--ink)}
+  .scen button:hover{background:var(--panel-2)}
+  .scen button[aria-pressed="true"]{background:var(--brand);color:#FFF}
+  .scen button[aria-pressed="true"] b{color:#FFF}
+
+  /* ---------- banda de estado ---------- */
+  .status{
+    display:flex;
+    align-items:center;
+    gap:14px;
+    padding:11px 16px;
+    border:1px solid var(--edge);
+    border-left-width:4px;
+    border-radius:3px;
+    background:var(--panel);
+  }
+  .status .dot{width:9px;height:9px;border-radius:50%;flex:none}
+  .status .txt{font:700 14px/1.3 var(--fs)}
+  .status .sub{color:var(--ink-2);font-size:13px;font-weight:400}
+  .status.is-stop{border-left-color:var(--brand)}
+  .status.is-stop .dot{background:var(--brand);box-shadow:0 0 0 4px rgba(200,16,46,.16)}
+  .status.is-run{border-left-color:var(--fluid)}
+  .status.is-run .dot{background:var(--fluid);box-shadow:0 0 0 4px rgba(52,101,131,.16)}
+  .status.is-idle{border-left-color:var(--metal)}
+  .status.is-idle .dot{background:var(--metal)}
+  .status .clock{
+    margin-left:auto;
+    font:400 13px/1 var(--fm);
+    font-variant-numeric:tabular-nums;
+    color:var(--ink-3);
+    white-space:nowrap;
+  }
+  .status .clock b{color:var(--ink);font-weight:700}
+
+  /* ---------- escena ---------- */
+  .stage{
+    border:1px solid var(--edge);
+    border-radius:3px;
+    background:var(--panel);
+    padding:10px 10px 0;
+  }
+  .scenewrap{position:relative}
+  #scene{display:block;width:100%;height:auto;aspect-ratio:1360/474}
+
+  /* El cronograma va sobre el hueco libre del esquema, arriba a la derecha:
+     los porcentajes corresponden a x 489..1341 e y 6..236 del lienzo. El
+     bloque de la izquierda creció para alojar los dos tanques, la carátula
+     del PT-100 y la vista de detalle de VI − VF. */
+  .plot{position:absolute;left:35.96%;top:1.27%;width:62.65%}
+  #trace{display:block;width:100%;height:auto;aspect-ratio:852/230;cursor:crosshair}
+
+  .bar{
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:16px;
+    padding:10px 4px 12px;
+    border-top:1px solid var(--edge);
+    margin-top:6px;
+  }
+  .key{display:flex;flex-wrap:wrap;align-items:center;gap:14px;font:700 10.5px/1.5 var(--fc);letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+  .key span{display:flex;align-items:center;gap:6px}
+  .key i{width:16px;height:5px;border-radius:2px;display:block;flex:none}
+  .key .note{text-transform:none;letter-spacing:0;font-weight:400;font-size:12px;color:var(--ink-3)}
+  .key .note strong{color:var(--ink-2);font-weight:700}
+
+  .controls{display:flex;align-items:center;gap:8px;margin-left:auto}
+  .btn{
+    appearance:none;
+    background:var(--panel);
+    border:1px solid var(--edge-2);
+    color:var(--ink);
+    border-radius:2px;
+    font:700 11.5px/1 var(--fc);
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    padding:9px 15px;
+    cursor:pointer;
+  }
+  .btn:hover{background:var(--panel-2)}
+  .btn.primary{background:var(--ink-2);border-color:var(--ink-2);color:#FFF}
+  .btn.primary:hover{background:var(--ink);border-color:var(--ink)}
+  .speed{display:flex;border:1px solid var(--edge-2);border-radius:2px;overflow:hidden;background:var(--panel)}
+  .speed button{
+    appearance:none;background:var(--panel);border:0;border-right:1px solid var(--edge-2);
+    color:var(--ink-3);font:700 11.5px/1 var(--fm);padding:9px 11px;cursor:pointer;
+  }
+  .speed button:last-child{border-right:0}
+  .speed button:hover{background:var(--panel-2);color:var(--ink-2)}
+  .speed button[aria-pressed="true"]{background:var(--ink-2);color:#FFF}
+
+  :focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+
+  /* ---------- instrumentos ---------- */
+  .tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .tile{
+    border:1px solid var(--edge);
+    border-radius:3px;
+    background:var(--panel);
+    padding:13px 15px 15px;
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+    min-height:140px;
+  }
+  .tile h3{
+    margin:0 0 6px;
+    font:700 10.5px/1.3 var(--fc);
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+  }
+  .tile .big{
+    font:700 34px/1 var(--fm);
+    font-variant-numeric:tabular-nums;
+    letter-spacing:-.02em;
+    color:var(--fluid);
+  }
+  .tile .big.sm{font-size:29px}
+  .tile .unit{font:700 11px/1 var(--fc);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-left:5px}
+  .tile .sub{
+    margin-top:7px;
+    font:400 12.5px/1.4 var(--fm);
+    font-variant-numeric:tabular-nums;
+    color:var(--ink-2);
+  }
+  .chip{
+    align-self:flex-start;
+    margin-top:auto;
+    font:700 10px/1 var(--fc);
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    padding:5px 8px;
+    border-radius:2px;
+    border:1px solid currentColor;
+  }
+  .chip.ok{color:var(--fluid)}
+  .chip.no{color:var(--ink-3)}
+  .chip.warn{color:var(--brand)}
+  .chip.good{color:var(--sage)}
+  .tile .big.c-fluid{color:var(--fluid)}
+  .tile .big.c-brand{color:var(--brand)}
+  .tile .big.c-sage{color:var(--sage)}
+
+  .prog{height:6px;border-radius:3px;background:var(--panel-2);margin-top:9px;overflow:hidden;display:flex}
+  .prog i{display:block;height:100%;background:var(--fluid);transition:width .12s linear}
+  .prog i#cBarOld{background:var(--old)}
+
+  /* ---------- fila inferior ---------- */
+  .lower{display:grid;grid-template-columns:1.15fr 1fr;gap:12px}
+  .card{
+    border:1px solid var(--edge);
+    border-radius:3px;
+    background:var(--panel);
+    padding:15px 16px 16px;
+  }
+  .card h3{
+    margin:0 0 3px;
+    font:700 10.5px/1.3 var(--fc);
+    letter-spacing:.12em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+  }
+  .card .lede{margin:0 0 12px;font-size:12.5px;color:var(--ink-3)}
+
+  .tip{
+    position:absolute;
+    pointer-events:none;
+    opacity:0;
+    transform:translate(-50%,-100%);
+    background:var(--panel);
+    border:1px solid var(--edge-2);
+    border-radius:2px;
+    padding:8px 10px;
+    font:400 12px/1.5 var(--fm);
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+    box-shadow:0 4px 14px rgba(22,25,26,.16);
+    transition:opacity .1s;
+    z-index:3;
+  }
+  .tip b{font-weight:700}
+  .tip .k{color:var(--ink-3);font-family:var(--fc);letter-spacing:.08em;text-transform:uppercase;font-size:10.5px;font-weight:700}
+
+  .tblwrap{overflow-x:auto;margin-top:10px}
+  table{border-collapse:collapse;width:100%;font:400 12px/1 var(--fm);font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:6px 10px;border-bottom:1px solid var(--edge);white-space:nowrap}
+  th{
+    background:var(--panel);
+    font:700 10px/1 var(--fc);letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);
+  }
+  th:first-child,td:first-child{text-align:left}
+  tr.tot td{font-weight:700;color:var(--ink);border-bottom:0}
+
+  .read p{margin:0 0 13px;font-size:13.5px;color:var(--ink-2)}
+  .read p strong{color:var(--ink);font-weight:700}
+  .read ul{margin:0;padding-left:0;list-style:none;display:flex;flex-direction:column;gap:9px}
+  .read li{
+    display:grid;
+    grid-template-columns:auto 1fr;
+    gap:10px;
+    font-size:13px;
+    color:var(--ink-2);
+    padding-left:15px;
+    position:relative;
+  }
+  /* Viñeta cuadrada roja, como la del patrón de diapositivas */
+  .read li::before{
+    content:"";
+    position:absolute;
+    left:0;top:.42em;
+    width:6px;height:6px;
+    background:var(--brand);
+  }
+  .read li b{
+    font:700 10.5px/1.6 var(--fc);
+    letter-spacing:.09em;
+    text-transform:uppercase;
+    color:var(--ink-3);
+    white-space:nowrap;
+  }
+  .read li em{font-style:normal;color:var(--ink);font-weight:700}
+
+  /* aviso que aparece cuando la resta del tanque se traga el consumo ajeno */
+  .alert{
+    margin:0 0 13px;
+    padding:10px 12px;
+    border:1px solid var(--brand);
+    border-left-width:4px;
+    border-radius:2px;
+    font-size:12.5px;
+    line-height:1.5;
+    color:var(--ink-2);
+    display:none;
+  }
+  .alert.on{display:block}
+  .alert b{
+    color:var(--brand);font-weight:700;text-transform:uppercase;
+    letter-spacing:.08em;font-size:10.5px;display:block;margin-bottom:3px;
+  }
+  .alert strong{color:var(--ink);font-weight:700}
+
+  footer{
+    border-top:1px solid var(--edge);
+    padding-top:14px;
+    font-size:11.5px;
+    line-height:1.65;
+    color:var(--ink-3);
+    max-width:104ch;
+  }
+  footer strong{color:var(--ink-2);font-weight:700}
+
+  @media (max-width:1080px){
+    .tiles{grid-template-columns:repeat(2,1fr)}
+    .lower{grid-template-columns:1fr}
+  }
+  @media (max-width:640px){
+    .tiles{grid-template-columns:1fr}
+    .brand h1{font-size:24px}
+    .controls{margin-left:0}
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <span class="eyebrow">Distribución de GLUT &middot; Training, CR1, CR2, CR3 y CR4</span>
+      <h1>Por qué el flushing detiene la planta dos horas</h1>
+      <p>Al cambiar de lote se cierra el <b>tanque&nbsp;A</b> y se abre el <b>tanque&nbsp;B</b>: la solución nueva entra al cabezal y <b>empuja por toda la línea</b> a la que quedó del lote anterior. Por eso la purga se verifica en el último POU de cada cuarto, uno tras otro. Como el único instrumento es un sensor de presión en el tanque, el volumen de cada purga se deduce restando V<sub>I</sub>&nbsp;&minus;&nbsp;V<sub>F</sub>, y para que esa resta valga la línea entera tiene que quedarse sin consumo durante toda la campaña.</p>
+    </div>
+    <div class="scen" role="group" aria-label="Escenario">
+      <button id="btnA" aria-pressed="true"><b>Hoy</b>sensor de presión en el tanque</button>
+      <button id="btnB" aria-pressed="false"><b>Con la aplicación</b>flujómetro en cada Glut final</button>
+    </div>
+  </header>
+
+  <div class="status is-stop" id="status">
+    <span class="dot"></span>
+    <span>
+      <span class="txt" id="stTxt">Preparación de la campaña</span>
+      <span class="sub" id="stSub">Se cierra el consumo en los cinco cuartos.</span>
+    </span>
+    <span class="clock">t&nbsp;<b id="clk">00:00</b>&nbsp;&nbsp;·&nbsp;&nbsp;<span id="spdTxt">×120</span></span>
+  </div>
+
+  <section class="stage" aria-label="Esquema animado de la línea y cronograma de la campaña">
+    <div class="scenewrap">
+      <canvas id="scene" width="1240" height="474" role="img"
+        aria-label="Esquema de los dos tanques de almacenamiento —el A con el lote anterior, aislado, y el B con el lote nuevo en servicio y su sensor de presión PT-100—, la vista de detalle de la resta VI menos VF, el cabezal de distribución y los cinco cuartos —Training, CR1, CR2, CR3 y CR4— cada uno con su ramal de puntos de uso y su Glut Station final. La solución del tanque B avanza por la tubería empujando a la del tanque A."></canvas>
+      <div class="plot">
+        <canvas id="trace" width="852" height="230" role="img"
+          aria-label="Cronograma de la campaña de flushing: una fila por cuarto con su ventana de preparación, purga y lectura, y una banda superior que indica si la planta puede consumir."></canvas>
+        <div class="tip" id="tip" role="status"></div>
+      </div>
+    </div>
+    <div class="bar">
+      <div class="key">
+        <span><i style="background:var(--old)"></i>Lote A &middot; solución anterior</span>
+        <span><i style="background:var(--fluid)"></i>Lote B &middot; solución nueva</span>
+        <span><i style="background:var(--metal)"></i>POU cerrado</span>
+        <span class="note">El lote B <strong>empuja</strong> al lote A: los primeros litros de cada purga solo desplazan la línea. La campaña es <strong>secuencial</strong>, un cuarto a la vez, siempre en el último POU.</span>
+      </div>
+      <div class="controls">
+        <div class="speed" role="group" aria-label="Velocidad de simulación">
+          <button data-spd="30" aria-pressed="false">×30</button>
+          <button data-spd="120" aria-pressed="true">×120</button>
+          <button data-spd="300" aria-pressed="false">×300</button>
+        </div>
+        <button class="btn primary" id="btnPlay">Pausar</button>
+        <button class="btn" id="btnReset">Reiniciar</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="tiles" aria-label="Instrumentos">
+    <div class="tile">
+      <h3>Tanque B &middot; PT-100</h3>
+      <div><span class="big" id="ptP">0,0</span><span class="unit">mbar</span></div>
+      <div class="sub">Nivel <span id="ptH">0,000</span> m &nbsp;&middot;&nbsp; <span id="ptV">0</span> L de lote B</div>
+      <span class="chip no" id="ptChip">Ninguna Glut abierta</span>
+    </div>
+
+    <div class="tile">
+      <h3 id="dH3">Resta del tanque &middot; V<sub>I</sub> &minus; V<sub>F</sub></h3>
+      <div><span class="big" id="dV">&mdash;</span><span class="unit">L</span></div>
+      <div class="sub" id="dSub">Aún no arranca ninguna purga.</div>
+      <span class="chip no" id="dChip">Sin registrar</span>
+    </div>
+
+    <div class="tile">
+      <h3>Producción detenida</h3>
+      <div><span class="big sm c-brand" id="dwn">0:00:00</span></div>
+      <div class="sub" id="dwnSub">Los cinco cuartos, sin consumo.</div>
+      <span class="chip warn" id="dwnChip">Línea cerrada</span>
+    </div>
+
+    <div class="tile">
+      <h3>Campaña &middot; 5 estaciones &middot; 1 383 L</h3>
+      <div><span class="big" id="cV">0</span><span class="unit">L purgados</span></div>
+      <div class="prog"><i id="cBarOld" style="width:0%"></i><i id="cBar" style="width:0%"></i></div>
+      <div class="sub" id="cSub">Estación 1 de 5</div>
+    </div>
+  </section>
+
+  <section class="lower">
+    <div class="card read">
+      <h3 id="readTitle">Hoy</h3>
+      <div class="alert" id="alert"></div>
+      <p id="readP"></p>
+      <ul id="readL"></ul>
+    </div>
+
+    <div class="card">
+      <h3>El cronograma en números</h3>
+      <p class="lede">Ventana de cada purga dentro de la campaña. <b>Empuja lote A</b> son los litros que solo sirven para desplazar la solución anterior que quedó en la tubería, calculados con la línea sin consumo. Con la aplicación parte de ese desplazamiento ya lo hizo el uso normal del cuarto, así que en la corrida puede salir lote B antes de ese punto.</p>
+      <div class="tblwrap">
+        <table>
+          <thead><tr><th>Estación</th><th>Volumen</th><th>Empuja lote A</th><th>Purga inicia</th><th>Purga termina</th><th>Duración</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>Datos del esquema.</strong> Volúmenes mínimos de flushing y etiquetas del POU más lejano, tomados de la validación de cada cuarto: Training 120 L (DOC-0138892A), CR1 450 L y CR2 252 L (DOC-0185706A, DOC-0132700A), CR3 266 L (DOC-0216863A), CR4 295 L (DOC-0250796B, DOC-0565322A). Suman <strong>1383 L</strong> por campaña.
+    <br><strong>Supuestos de la animación.</strong> Cada tanque se modela como cilindro vertical de 6000 L y Ø 1,80 m (área 2,545 m²) con densidad 1010 kg/m³, de modo que presión, nivel y volumen se correspondan entre sí. El caudal de purga (18 L/min), los tiempos de preparación y lectura por estación, y los consumos de las Glut Stations en uso son valores representativos escogidos para que la campaña dure las dos horas conocidas; no divulgan parámetros de proceso. El reloj corre acelerado respecto al tiempo real.
+    <br><strong>Volumen de la línea.</strong> El desplazamiento del lote A se simula repartiendo un volumen de tubería por ramal igual a <strong>un tercio del volumen mínimo de flushing</strong> de ese cuarto —la regla habitual de purgar tres volúmenes de línea—: 40 L hasta Training, 150 L hasta CR1, 84 L hasta CR2, 89 L hasta CR3 y 98 L hasta CR4, de los cuales 58 L son cabezal compartido. Es un supuesto de la animación, no un dato medido: sirve para mostrar que los primeros litros de cada purga solo empujan la solución anterior. Conviene confirmarlo contra los isométricos de la línea antes de presentarla.
+    <br><strong>Atajos.</strong> Barra espaciadora: reproducir o pausar. Tecla R: reiniciar. Teclas 1 y 2: cambiar de escenario.
+  </footer>
+
+</div>
+
+<script>
+(() => {
+'use strict';
+
+/* ======================================================================
+   0 · Utilidades
+   ====================================================================== */
+const $  = s => document.querySelector(s);
+const $$ = s => Array.from(document.querySelectorAll(s));
+const clamp = (v,a,b) => v < a ? a : v > b ? b : v;
+const REDUCED = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const n0 = x => Math.round(x).toLocaleString('es-CR');
+const n1 = x => x.toFixed(1).replace('.', ',');
+const n3 = x => x.toFixed(3).replace('.', ',');
+const pad = x => String(x).padStart(2, '0');
+/* Formato fijo: en una columna, o en un contador que cruza la hora, mezclar
+   mm:ss con h:mm:ss descuadra la lectura. */
+const hms = t => {
+  const s = Math.max(0, Math.floor(t));
+  return Math.floor(s / 3600) + ':' + pad(Math.floor(s % 3600 / 60)) + ':' + pad(s % 60);
+};
+
+const cssv = getComputedStyle(document.documentElement);
+const C = {};
+['ground','panel','panel-2','bore','edge','edge-2','ink','ink-2','ink-3',
+ 'fluid','fluid-hi','fluid-dim','old','old-hi','old-dim','old-ink',
+ 'brand','sage','metal','tint-brand','tint-sage','tint-old'].forEach(k => {
+  C[k] = cssv.getPropertyValue('--' + k).trim();
+  if (!C[k]) throw new Error('falta la variable de color --' + k);
+});
+
+/* El template solo define Arial, que tiene dos pesos. La jerarquía se hace con
+   peso, tamaño y caja, no con familias. El factor 0.9 de `cond` compensa que
+   Arial es más ancha que una condensada: los rótulos largos siguen cabiendo. */
+const ARIAL = 'Arial,"Helvetica Neue",Helvetica,sans-serif';
+const F = {
+  cond: (sz, wt=600) => `${wt >= 600 ? 700 : 400} ${(sz * 0.9).toFixed(2)}px ${ARIAL}`,
+  mono: (sz, wt=500) => `${wt >= 500 ? 700 : 400} ${sz}px ${ARIAL}`
+};
+
+/* ======================================================================
+   1 · El sistema y la campaña
+   ====================================================================== */
+
+/* Dos tanques alimentan el mismo cabezal a través de un manifold. El A guarda
+   el lote anterior y el B el lote nuevo; al arrancar la campaña se cierra A y
+   se abre B, de modo que la solución del B entra a la línea y va empujando a
+   la del A hasta sacarla por la boquilla. De ese cabezal cuelga un ramal por
+   cuarto, cada uno con varios POU, y el flushing se ejecuta siempre en el
+   último, que es el peor caso de desplazamiento de volumen en la tubería. La
+   campaña recorre los cinco cuartos en secuencia: al terminar uno sigue el
+   siguiente.
+
+   `line` es el volumen de tubería desde el manifold hasta el último POU de ese
+   cuarto. Es un supuesto de la animación —un tercio del volumen de flushing,
+   la regla de purgar tres volúmenes de línea— y está declarado en el pie. */
+const ROOMS = [
+  { id:'TRN', name:'TRAINING', tag:'GLUT-TRN-POU #4',          target:120, line: 40 },
+  { id:'CR1', name:'CR1',      tag:'CRCW-GLUT-CR1-POU-GST-06', target:450, line:150 },
+  { id:'CR2', name:'CR2',      tag:'CRCW-GLUT-CR2-POU-GST-06', target:252, line: 84 },
+  { id:'CR3', name:'CR3',      tag:'CRCW-GLUT-CR3-POU-GST-04', target:266, line: 89 },
+  { id:'CR4', name:'CR4',      tag:'CRCW-GLUT-CR4-POU-GST-05', target:295, line: 98 }
+];
+const TOTAL = ROOMS.reduce((a,r) => a + r.target, 0);   // 1383 L
+
+/* La línea se parte en tramos, que es lo que permite seguir el frente entre
+   los dos lotes: cinco tramos de cabezal, compartidos, y un ramal por cuarto.
+   El cabezal es común, así que lo que desplaza una purga le queda desplazado a
+   la siguiente: por eso solo TRAINING paga los 18 L del primer tramo. */
+const HSEG = [18, 10, 10, 10, 10];                         // L de cabezal
+const hdrCum = i => HSEG.slice(0, i + 1).reduce((a,b) => a + b, 0);
+const BSEG = ROOMS.map((r,i) => r.line - hdrCum(i));       // L de ramal
+const LINE_TOTAL = hdrCum(4) + BSEG.reduce((a,b) => a + b, 0);
+
+/* Litros de la purga de cada cuarto que solo sirven para empujar el lote A:
+   todo lo que quedaba sin desplazar cuando esa estación abre su boquilla. */
+const dispOf = i => ROOMS[i].line - (i === 0 ? 0 : hdrCum(i - 1));
+
+/* Tanques: cilindros verticales iguales. El PT-100 está en el que esté en
+   servicio —el B— y mide la presión hidrostática en el fondo; de ahí salen el
+   nivel y el volumen, y cada purga sale de la resta VI − VF. */
+const TANK_CAP  = 6000;   // L
+const TANK_AREA = 2.545;  // m² — Ø 1,80 m
+const RHO       = 1010;   // kg/m³
+const GRAV      = 9.81;   // m/s²
+const TANK_0    = 4500;   // L de lote nuevo en el tanque B al arrancar
+const TANK_A    = 1850;   // L de lote anterior que quedan en el A, aislado
+const levelOf = V => V / (TANK_AREA * 1000);          // m
+const pressOf = V => RHO * GRAV * levelOf(V) / 100;   // mbar
+
+/* Tiempos de la campaña. Con estos valores el escenario de hoy da exactamente
+   2 h de línea cerrada, que es lo que dura hoy la intervención. */
+const Q_FLUSH = 18;     // L/min por boquilla en purga
+const SETUP   = 240;    // s de preparación de cada estación
+const SETTLE  = 120;    // s de cierre y estabilización del nivel
+const PREP    = 600;    // s de cierre inicial de los cinco cuartos (solo hoy)
+const RESTORE = 190;    // s de reapertura al final (solo hoy)
+const T_END   = 7500;   // s de simulación — 125 min
+
+/* Consumo de una Glut Station en uso: ráfagas cortas de unos litros. */
+function useFlow(i, t){
+  const v = 0.65*Math.sin(t/95 + i*2.3) + 0.35*Math.sin(t/23 + i*1.7);
+  return v > 0.62 ? 3.0 + 3.0*Math.min(1, (v - 0.62)/0.35) : 0;
+}
+
+/* El frente entre los dos lotes. Se empujan dV litros de lote B por el camino
+   que va del manifold al último POU del cuarto i. Un tramo solo empieza a
+   recibir lote B cuando el anterior ya está lleno de lote B: mientras al tramo
+   de aguas arriba le quede lote A, lo que sale por su extremo sigue siendo
+   lote A. Es la misma cuenta que hace el flujo pistón, y es la razón de que el
+   volumen mínimo de flushing sea varias veces el volumen de la tubería. */
+function displace(i, dV){
+  if (!(dV > 0)) return;
+  let inNew = dV;
+  for (let k = 0; k <= i; k++){
+    const space = HSEG[k] - S.pipe.h[k];
+    if (space > 0){
+      S.pipe.h[k] = Math.min(HSEG[k], S.pipe.h[k] + inNew);
+      inNew -= space;
+      if (inNew <= 0) return;
+    }
+  }
+  S.pipe.r[i] = Math.min(BSEG[i], S.pipe.r[i] + inNew);
+}
+
+/* ¿Lo que sale por la boquilla del cuarto i ya es lote B? */
+const atNozzle = i => S.pipe.r[i] >= BSEG[i] - 1e-6;
+
+/* Cronograma: preparación, purga y lectura de cada estación, una tras otra. */
+function buildSchedule(scen){
+  const sch = [];
+  let t = scen === 'A' ? PREP : 0;
+  ROOMS.forEach(r => {
+    const dur = r.target / Q_FLUSH * 60;
+    const o = { setup:t, flush:t + SETUP, end:t + SETUP + dur, settle:t + SETUP + dur + SETTLE, dur };
+    sch.push(o);
+    t = o.settle;
+  });
+  return { sch, workEnd: t, downEnd: scen === 'A' ? t + RESTORE : 0 };
+}
+
+/* Qué está haciendo un cuarto en el instante t. */
+function stateAt(i, t){
+  const s = S.sch[i];
+  if (t >= s.flush && t < s.end)   return ['flush',  null];
+  if (t >= s.setup && t < s.flush) return ['closed', 'setup'];
+  if (t >= s.end   && t < s.settle)return ['closed', 'settle'];
+  if (S.scen === 'A') return [t >= S.downEnd ? 'use' : 'closed', null];
+  return ['use', null];
+}
+
+/* ======================================================================
+   2 · Estado
+   ====================================================================== */
+const S = {
+  scen: 'A',
+  t: 0, rt: 0, rdt: 0,
+  playing: !REDUCED,
+  speed: 120,
+  sch: [], workEnd: 0, downEnd: 0,
+  downtime: 0,
+  tank: TANK_0,
+  noise: 0,
+  rooms: [],
+  pipe: { h:[], r:[] },   // litros de lote B que ya entraron en cada tramo
+  hover: null,
+  falseHit: null   // primera purga que la resta del tanque daría por buena antes de tiempo
+};
+
+/* Estación activa: la última cuyo turno ya arrancó. */
+function activeRoom(){
+  for (let i = ROOMS.length - 1; i >= 0; i--) if (S.t >= S.sch[i].setup) return i;
+  return -1;
+}
+
+function reset(){
+  const b = buildSchedule(S.scen);
+  S.sch = b.sch; S.workEnd = b.workEnd; S.downEnd = b.downEnd;
+  S.t = 0; S.downtime = 0; S.tank = TANK_0; S.noise = 0;
+  S.falseHit = null; S.hover = null;
+  S.dash = {};
+  // toda la línea arranca llena del lote anterior
+  S.pipe = { h: HSEG.map(() => 0), r: BSEG.map(() => 0) };
+  S.rooms = ROOMS.map((r,i) => ({
+    ...r, i, mode:'closed', sub:null, q:0, vol:0, vessel:0,
+    disp: dispOf(i), VI:null, VF:null, done:false
+  }));
+  paintRead();
+  drawTable();
+}
+
+/* ======================================================================
+   3 · Simulación
+   ====================================================================== */
+function update(dt){
+  if (S.t >= T_END){ S.playing = false; syncPlayBtn(); return; }
+  const prevT = S.t;
+  S.t = Math.min(T_END, S.t + dt);
+  const R = S.rooms;
+
+  let total = 0;
+  R.forEach(r => {
+    const s = S.sch[r.i];
+    const [mode, sub] = stateAt(r.i, S.t);
+    r.mode = mode; r.sub = sub;
+
+    // VI se registra al abrir la boquilla; VF, al terminar de estabilizar
+    if (prevT < s.flush  && S.t >= s.flush)  r.VI = S.tank;
+    if (prevT < s.settle && S.t >= s.settle){ r.VF = S.tank; r.done = true; }
+
+    r.q = mode === 'flush' ? Q_FLUSH : mode === 'use' ? useFlow(r.i, S.t) : 0;
+    // todo lo que se saca por un POU empuja el frente por ese camino
+    if (r.q > 0) displace(r.i, r.q * dt / 60);
+    if (mode === 'flush') r.vol = Math.min(r.target, r.vol + r.q * dt / 60);
+    if (mode === 'use'){
+      r.vessel += r.q * dt / 60;
+      if (r.vessel > 10) r.vessel = 0;   // el operador retira el recipiente lleno
+    }
+    total += r.q;
+  });
+
+  S.tank = Math.max(0, S.tank - total * dt / 60);
+  if (S.scen === 'A' && S.t < S.downEnd) S.downtime += dt;
+
+  /* Ruido del transmisor: un sensor de presión sobre un tanque ancho no da un
+     número perfectamente quieto. Deja ver que el volumen es indirecto. */
+  S.noise = clamp(S.noise * 0.92 + (Math.random() - 0.5) * 0.35, -1.2, 1.2);
+
+  /* El punto del argumento: con la línea abierta, la resta del tanque alcanza
+     la meta antes que la boquilla, porque se come el consumo de los demás. */
+  if (S.scen === 'B' && !S.falseHit){
+    const i = activeRoom();
+    if (i >= 0){
+      const r = R[i];
+      if (r.mode === 'flush' && r.VI !== null && (r.VI - S.tank) >= r.target && r.vol < r.target){
+        S.falseHit = { t: S.t, room: r.name, sta: r.vol, target: r.target };
+      }
+    }
+  }
+}
+
+/* ======================================================================
+   4 · Geometría del esquema
+   ====================================================================== */
+const W = 1360, H = 474;
+
+/* Los dos tanques, lado a lado, con sus bajantes a un manifold común. */
+const VES = {
+  A: { cx: 58,  rx:38, top:52, bot:186, ry:11 },
+  B: { cx:152,  rx:38, top:52, bot:186, ry:11 }
+};
+const MAN_Y  = 226;    // manifold bajo los tanques
+const ELB_X  = 460;    // codo por donde el manifold baja al cabezal
+const HDR_Y  = 250;
+const PT_BOX  = { x:332, y:42, w:144, h:174 };   // carátula del PT-100
+const DET_BOX = { x:198, y:42, w:126, h:174 };   // detalle de VI − VF
+const ROOM_X = [492, 664, 836, 1008, 1180];
+const ROOM_Y = 268, ROOM_W = 164, ROOM_H = 176;
+const branchX = i => ROOM_X[i] + 26;
+const lastX   = i => ROOM_X[i] + 138;
+
+/* El ramal de un cuarto se dibuja en tres tramos —la bajante del cabezal, el
+   recorrido dentro del cuarto y la bajada al último POU—, pero para el frente
+   es un solo tramo. Estos son los cortes, por longitud dibujada, que dicen qué
+   parte del ramal le toca a cada trozo. */
+const BR_L = [ROOM_Y + 4 - HDR_Y, 18 + (lastX(0) - branchX(0)), 14];
+const BR_T = BR_L.reduce((a,b) => a + b, 0);
+const BR_A = [0, BR_L[0] / BR_T, (BR_L[0] + BR_L[1]) / BR_T, 1];
+
+const scene = $('#scene');
+const ctx   = scene.getContext('2d');
+
+function rr(g,x,y,w,h,r){
+  g.beginPath();
+  if (g.roundRect) g.roundRect(x,y,w,h,r);
+  else {
+    const k = Math.min(r, w/2, h/2);
+    g.moveTo(x+k,y);
+    g.arcTo(x+w,y,x+w,y+h,k);
+    g.arcTo(x+w,y+h,x,y+h,k);
+    g.arcTo(x,y+h,x,y,k);
+    g.arcTo(x,y,x+w,y,k);
+    g.closePath();
+  }
+}
+function poly(pts){
+  ctx.beginPath();
+  ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i=1;i<pts.length;i++) ctx.lineTo(pts[i][0], pts[i][1]);
+}
+function txt(s, x, y, font, color, align='left'){
+  ctx.font = font; ctx.fillStyle = color; ctx.textAlign = align;
+  ctx.fillText(s, x, y);
+  ctx.textAlign = 'left';
+}
+
+/* Longitud de cada tramo de una polilínea, y el trozo comprendido entre dos
+   fracciones de esa longitud. Con esto se parte una tubería en la parte que ya
+   lleva lote B y la que todavía lleva lote A. */
+function polyLen(pts){
+  const segs = []; let L = 0;
+  for (let i = 1; i < pts.length; i++){
+    const d = Math.hypot(pts[i][0] - pts[i-1][0], pts[i][1] - pts[i-1][1]);
+    segs.push(d); L += d;
+  }
+  return { L, segs };
+}
+function subPoly(pts, f0, f1){
+  const { L, segs } = polyLen(pts);
+  if (!(L > 0) || f1 <= f0) return null;
+  const d0 = f0 * L, d1 = f1 * L;
+  const out = []; let acc = 0;
+  for (let i = 1; i < pts.length; i++){
+    const a = pts[i-1], b = pts[i], d = segs[i-1], e = acc + d;
+    const lo = Math.max(acc, d0), hi = Math.min(e, d1);
+    if (d > 0 && hi >= lo){
+      const t0 = (lo - acc) / d, t1 = (hi - acc) / d;
+      if (!out.length) out.push([a[0] + (b[0]-a[0])*t0, a[1] + (b[1]-a[1])*t0]);
+      out.push([a[0] + (b[0]-a[0])*t1, a[1] + (b[1]-a[1])*t1]);
+    }
+    acc = e;
+  }
+  return out.length >= 2 ? out : null;
+}
+
+/* Guiones que avanzan mientras hay caudal. */
+function dashes(pts, key, q, color, w){
+  if (!(q > 0.01) || REDUCED) return;
+  S.dash[key] = ((S.dash[key] || 0) - q * 1.4 * S.rdt) % 26;
+  ctx.save();
+  ctx.setLineDash([8, 18]);
+  ctx.lineDashOffset = S.dash[key];
+  poly(pts); ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.5, w - 7); ctx.stroke();
+  ctx.restore();
+}
+
+/* La interfase entre los dos lotes: un filete claro cruzado a la tubería. */
+function front(neo, core){
+  const n = neo.length, p = neo[n-1], o = neo[n-2];
+  const dx = p[0] - o[0], dy = p[1] - o[1], L = Math.hypot(dx, dy) || 1;
+  const nx = -dy / L, ny = dx / L, rr2 = core / 2 + 1;
+  ctx.save();
+  ctx.lineCap = 'butt';
+  ctx.strokeStyle = C.panel; ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(p[0] + nx * rr2, p[1] + ny * rr2);
+  ctx.lineTo(p[0] - nx * rr2, p[1] - ny * rr2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* Tramo de tubería sanitaria: casco, interior y las dos columnas de líquido.
+   `fill` es la fracción del tramo lógico que ya lleva lote B; `a` y `b` dicen
+   qué parte de ese tramo lógico cubre este trozo dibujado, porque un ramal se
+   dibuja en tres pedazos pero para el frente es uno solo. */
+function pipe(pts, w, key, q, fill, a = 0, b = 1){
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  poly(pts); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = w + 5; ctx.stroke();
+  poly(pts); ctx.strokeStyle = C.bore;      ctx.lineWidth = w + 1; ctx.stroke();
+
+  const core = Math.max(2, w - 3);
+  const moving = q > 0.01;
+  const f = b > a ? clamp((clamp(fill, 0, 1) - a) / (b - a), 0, 1) : (fill >= 1 ? 1 : 0);
+
+  if (f < 1){
+    const old = subPoly(pts, f, 1);
+    if (old){
+      poly(old); ctx.strokeStyle = moving ? C.old : C['old-dim'];
+      ctx.lineWidth = core; ctx.stroke();
+      dashes(old, key + 'a', q, C['old-hi'], w);
+    }
+  }
+  if (f > 0){
+    const neo = subPoly(pts, 0, f);
+    if (neo){
+      poly(neo); ctx.strokeStyle = moving ? C.fluid : C['fluid-dim'];
+      ctx.lineWidth = core; ctx.stroke();
+      dashes(neo, key + 'b', q, C['fluid-hi'], w);
+      if (f < 1) front(neo, core);
+    }
+  }
+}
+
+/* El chorro de la boquilla, del color del lote que esté saliendo. */
+function stream(x, y0, y1, q, seed, isNew){
+  if (q <= 0.01) return;
+  const w = 2.5 + Math.min(3.5, q / 6);
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = isNew ? C.fluid : C.old; ctx.lineWidth = w;
+  ctx.beginPath(); ctx.moveTo(x, y0); ctx.lineTo(x, y1); ctx.stroke();
+  if (!REDUCED){
+    const ph = (S.rt * 130 * (q / Q_FLUSH) + seed * 7) % 22;
+    ctx.strokeStyle = isNew ? C['fluid-hi'] : C['old-hi'];
+    ctx.lineWidth = Math.max(1, w - 1.6);
+    for (let y = y0 - ph; y < y1; y += 22){
+      const a = Math.max(y0, y), b = Math.min(y1, y + 8);
+      if (b > a){ ctx.beginPath(); ctx.moveTo(x, a); ctx.lineTo(x, b); ctx.stroke(); }
+    }
+  }
+}
+
+/* ----- los dos tanques y el transmisor de presión ----- */
+function vesselPath(v){
+  const { cx, rx, top, bot, ry } = v;
+  ctx.beginPath();
+  ctx.ellipse(cx, top, rx, ry, 0, Math.PI, 0);
+  ctx.lineTo(cx + rx, bot);
+  ctx.ellipse(cx, bot, rx, ry, 0, 0, Math.PI);
+  ctx.lineTo(cx - rx, top);
+  ctx.closePath();
+}
+const yInVes = (v, V) => v.bot - clamp(V / TANK_CAP, 0, 1) * (v.bot - v.top);
+
+/* `live` distingue al tanque en servicio: el B lleva el lote nuevo y su nivel
+   se mueve; el A guarda el lote anterior y queda quieto mientras dura todo. */
+function drawVessel(v, V, live){
+  const { cx, rx, top, bot, ry } = v;
+  const body = live ? C.fluid       : C.old;
+  const dim  = live ? C['fluid-dim'] : C['old-dim'];
+  const hi   = live ? C['fluid-hi']  : C['old-hi'];
+
+  vesselPath(v); ctx.fillStyle = C.bore; ctx.fill();
+
+  const lvl = yInVes(v, V);
+  ctx.save(); vesselPath(v); ctx.clip();
+  const g = ctx.createLinearGradient(cx - rx, 0, cx + rx, 0);
+  g.addColorStop(0, dim); g.addColorStop(.45, body); g.addColorStop(1, dim);
+  ctx.fillStyle = g;
+  ctx.fillRect(cx - rx, lvl, rx * 2, bot + ry - lvl);
+  const bob = (REDUCED || !live) ? 0 : Math.sin(S.rt * 1.5) * 1.6;
+  ctx.beginPath(); ctx.ellipse(cx, lvl + bob, rx, ry * .82, 0, 0, Math.PI * 2);
+  ctx.fillStyle = hi; ctx.globalAlpha = .55; ctx.fill(); ctx.globalAlpha = 1;
+  ctx.restore();
+
+  vesselPath(v); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1;
+  for (let f = 0.25; f < 1; f += 0.25){
+    const y = bot - f * (bot - top);
+    ctx.beginPath(); ctx.moveTo(cx + rx - 10, y); ctx.lineTo(cx + rx - 2, y); ctx.stroke();
+  }
+  txt(n0(V) + ' L', cx, clamp(lvl + 16, top + 24, bot - 10), F.mono(12, 600),
+      live ? C.panel : C.ink, 'center');
+}
+
+function tankHead(v, title, sub, subCol, chip, chipCol){
+  txt(title, v.cx, 15, F.cond(12.5, 700), C.ink,  'center');
+  txt(sub,   v.cx, 27, F.cond(10, 600),   subCol, 'center');
+  ctx.font = F.cond(9.5, 600);
+  const cw = ctx.measureText(chip).width + 14;
+  rr(ctx, v.cx - cw / 2, 33, cw, 14, 2);
+  ctx.fillStyle = C.panel; ctx.fill();
+  ctx.strokeStyle = chipCol; ctx.lineWidth = 1; ctx.stroke();
+  txt(chip, v.cx, 43, F.cond(9.5, 600), chipCol, 'center');
+}
+
+/* Válvula de la bajante de cada tanque: abierta la del B, cerrada la del A. */
+function valve(x, y, open){
+  const col = open ? C.fluid : C.metal;
+  poly([[x-9,y-7],[x-9,y+7],[x,y]]); ctx.fillStyle = col; ctx.fill();
+  poly([[x+9,y-7],[x+9,y+7],[x,y]]); ctx.fillStyle = col; ctx.fill();
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2;
+  poly([[x-9,y-7],[x,y],[x-9,y+7]]); ctx.closePath(); ctx.stroke();
+  poly([[x+9,y-7],[x,y],[x+9,y+7]]); ctx.closePath(); ctx.stroke();
+  if (!open){
+    ctx.strokeStyle = C.brand; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x - 5, y - 5); ctx.lineTo(x + 5, y + 5);
+    ctx.moveTo(x + 5, y - 5); ctx.lineTo(x - 5, y + 5);
+    ctx.stroke();
+  }
+}
+
+function drawVessels(){
+  const A = VES.A, B = VES.B;
+  drawVessel(A, TANK_A, false);
+  drawVessel(B, S.tank, true);
+  tankHead(A, 'TANQUE A', 'LOTE ANTERIOR', C['old-ink'], 'AISLADO',     C['ink-3']);
+  tankHead(B, 'TANQUE B', 'LOTE NUEVO',    C.fluid,      'EN SERVICIO', C.fluid);
+  valve(A.cx, 210, false);
+  valve(B.cx, 210, true);
+
+  /* La rebanada que el tanque en servicio perdió desde que abrió la boquilla.
+     Son 120 L sobre 6 000: tres píxeles. De ahí sale la vista de detalle. */
+  const act = activeRoom();
+  const r   = act >= 0 ? S.rooms[act] : null;
+  if (r && r.VI !== null){
+    const V  = r.VF === null ? S.tank : r.VF;
+    const y1 = yInVes(B, r.VI), y2 = yInVes(B, V);
+    ctx.save(); vesselPath(B); ctx.clip();
+    ctx.fillStyle = C['tint-brand'];
+    ctx.fillRect(B.cx - B.rx, y1, B.rx * 2, Math.max(1, y2 - y1));
+    ctx.setLineDash([5, 4]); ctx.strokeStyle = C.brand; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(B.cx - B.rx, y1); ctx.lineTo(B.cx + B.rx, y1); ctx.stroke();
+    ctx.setLineDash([]); ctx.restore();
+
+    const by = Math.min(y1, y2) - 4, bh = Math.max(9, Math.abs(y2 - y1) + 8);
+    ctx.save();
+    ctx.setLineDash([3, 2]); ctx.strokeStyle = C.brand; ctx.lineWidth = 1;
+    ctx.strokeRect(B.cx - B.rx - 3, by, B.rx * 2 + 6, bh);
+    ctx.restore();
+    S.lens = { x: B.cx + B.rx + 3, top: by, bot: by + bh };
+  } else {
+    S.lens = null;
+  }
+
+  // toma del transmisor en el fondo del tanque B, y su señal a la carátula
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(B.cx - B.rx, 176); ctx.lineTo(105, 176); ctx.stroke();
+  ctx.beginPath(); ctx.arc(105, 176, 6.5, 0, Math.PI * 2);
+  ctx.fillStyle = C.panel; ctx.fill();
+  ctx.strokeStyle = C.fluid; ctx.lineWidth = 1.6; ctx.stroke();
+  txt('PT', 105, 179, F.cond(8.5, 700), C.fluid, 'center');
+}
+
+function drawPump(x, y){
+  const q = S.rooms.reduce((a, r) => a + r.q, 0);
+  ctx.beginPath(); ctx.arc(x, y, 12, 0, Math.PI * 2);
+  ctx.fillStyle = C['panel-2']; ctx.fill();
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 2; ctx.stroke();
+  ctx.save(); ctx.translate(x, y);
+  if (!REDUCED && q > 0.01) ctx.rotate(S.rt * 4.5);
+  ctx.beginPath(); ctx.moveTo(-4.5, -5.5); ctx.lineTo(5.5, 0); ctx.lineTo(-4.5, 5.5); ctx.closePath();
+  ctx.fillStyle = q > 0.01 ? C.fluid : C.metal; ctx.fill();
+  ctx.restore();
+}
+
+/* ----- carátula del PT-100 ----- */
+function drawPT(){
+  const { x, y, w, h } = PT_BOX;
+  rr(ctx, x, y, w, h, 4); ctx.fillStyle = C['panel-2']; ctx.fill();
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + 22); ctx.lineTo(x + w, y + 22);
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1; ctx.stroke();
+  txt('PT-100 · TANQUE B', x + 10, y + 15, F.cond(11.5, 600), C['ink-3']);
+
+  const V = S.tank;
+  txt(n1(pressOf(V) + S.noise * 0.1), x + w - 46, y + 58, F.mono(24, 500), C.fluid, 'right');
+  txt('mbar', x + w - 10, y + 58, F.cond(11.5, 600), C['ink-3'], 'right');
+
+  const row = (lab, val, yy, col, f) => {
+    txt(lab, x + 10, yy, F.cond(10.5, 600), C['ink-3']);
+    txt(val, x + w - 10, yy, f || F.mono(12.5, 500), col || C['ink-2'], 'right');
+  };
+  row('NIVEL',   n3(levelOf(V)) + ' m', y + 80);
+  row('VOLUMEN', n0(V) + ' L',          y + 98);
+
+  ctx.beginPath(); ctx.moveTo(x + 10, y + 108); ctx.lineTo(x + w - 10, y + 108);
+  ctx.strokeStyle = C.edge; ctx.lineWidth = 1; ctx.stroke();
+
+  row('EN SERVICIO', 'LOTE B', y + 126, C.fluid, F.cond(12, 700));
+  const open = S.rooms.filter(r => r.q > 0.01).length;
+  row('GLUT ABIERTAS', String(open), y + 144,
+      open === 1 ? C.fluid : open === 0 ? C['ink-3'] : C.brand, F.mono(12.5, 600));
+
+  txt('El tanque solo ve que bajó:', x + 10, y + 163, F.cond(10, 500), C['ink-3']);
+  txt('no sabe por cuál boquilla.',  x + 10, y + 173, F.cond(10, 500), C['ink-3']);
+}
+
+/* ----- detalle de VI − VF -----
+   En el tanque la resta de una purga son dos o tres píxeles: 120 L sobre 6 000.
+   Esta es la vista ampliada de esa rebanada, que es lo único que el PT-100
+   compara y de donde sale el volumen que se da por purgado. */
+function drawDetail(){
+  const { x, y, w, h } = DET_BOX;
+  rr(ctx, x, y, w, h, 4); ctx.fillStyle = C['panel-2']; ctx.fill();
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.4; ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x, y + 22); ctx.lineTo(x + w, y + 22);
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1; ctx.stroke();
+  txt('DETALLE · VI − VF', x + 10, y + 15, F.cond(11.5, 600), C['ink-3']);
+
+  const sx = x + 10, sw = 24, sy = y + 34, sh = 96;
+  const ax = sx + sw + 5, tx = sx + sw + 14;
+  const act = activeRoom();
+  const r   = act >= 0 ? S.rooms[act] : null;
+
+  if (!r || r.VI === null){
+    rr(ctx, sx, sy, sw, sh, 2); ctx.fillStyle = C.bore; ctx.fill();
+    ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2; ctx.stroke();
+    ['Sin purga en', 'curso. VI se', 'registra al', 'abrir la', 'boquilla.']
+      .forEach((t, k) => txt(t, tx - 4, sy + 28 + k * 13, F.cond(11, 600), C['ink-3']));
+    txt('En el tanque esta resta', x + 10, y + h - 24, F.cond(10, 500), C['ink-3']);
+    txt('son 3 px sobre 6 000 L.', x + 10, y + h - 12, F.cond(10, 500), C['ink-3']);
+    return;
+  }
+
+  /* La ventana se escala a la meta del cuarto en turno, para que la rebanada
+     ocupe siempre la mayor parte de la tira sin importar si son 120 o 450 L. */
+  const V    = r.VF === null ? S.tank : r.VF;
+  const win  = Math.max(90, r.target * 1.7);
+  const topV = r.VI + win * 0.18;
+  const yOf  = v => sy + clamp((topV - v) / win, 0, 1) * sh;
+  const yI = yOf(r.VI), yV = yOf(V), yM = yOf(r.VI - r.target);
+
+  // líneas guía que amarran esta tira con la caja marcada en el tanque
+  if (S.lens){
+    ctx.save();
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(S.lens.x, S.lens.top); ctx.lineTo(sx, yI - 2);
+    ctx.moveTo(S.lens.x, S.lens.bot); ctx.lineTo(sx, yV + 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  ctx.save(); rr(ctx, sx, sy, sw, sh, 2); ctx.clip();
+  ctx.fillStyle = C.bore;  ctx.fillRect(sx, sy, sw, sh);
+  ctx.fillStyle = C.fluid; ctx.fillRect(sx, yV, sw, sy + sh - yV);
+  ctx.restore();
+
+  const bh = Math.max(0, yV - yI);
+  if (bh > 0){
+    ctx.save();
+    ctx.beginPath(); ctx.rect(sx, yI, sw, bh); ctx.clip();
+    ctx.fillStyle = C['tint-brand']; ctx.fillRect(sx, yI, sw, bh);
+    ctx.strokeStyle = C.brand; ctx.lineWidth = 1; ctx.globalAlpha = .45;
+    for (let k = -sw - 6; k < sh + sw + 10; k += 6){
+      ctx.beginPath();
+      ctx.moveTo(sx - 2, yI + k); ctx.lineTo(sx + sw + 2, yI + k - sw - 4);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1; ctx.restore();
+  }
+
+  // la meta del cuarto, marcada dentro de la tira
+  ctx.save();
+  ctx.beginPath(); ctx.rect(sx, sy, sw, sh); ctx.clip();
+  ctx.setLineDash([3, 3]); ctx.strokeStyle = C.panel; ctx.lineWidth = 1.6;
+  ctx.beginPath(); ctx.moveTo(sx, yM); ctx.lineTo(sx + sw, yM); ctx.stroke();
+  ctx.restore();
+
+  rr(ctx, sx, sy, sw, sh, 2); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2; ctx.stroke();
+
+  ctx.save();
+  ctx.setLineDash([4, 3]); ctx.lineWidth = 1.4;
+  ctx.strokeStyle = C.brand;
+  ctx.beginPath(); ctx.moveTo(sx - 4, yI); ctx.lineTo(x + w - 10, yI); ctx.stroke();
+  ctx.strokeStyle = C.ink;
+  ctx.beginPath(); ctx.moveTo(sx - 4, yV); ctx.lineTo(x + w - 10, yV); ctx.stroke();
+  ctx.restore();
+
+  if (bh > 13){
+    ctx.strokeStyle = C.brand; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(ax, yI + 1); ctx.lineTo(ax, yV - 1); ctx.stroke();
+    ctx.fillStyle = C.brand;
+    poly([[ax, yI], [ax - 3, yI + 6], [ax + 3, yI + 6]]); ctx.fill();
+    poly([[ax, yV], [ax - 3, yV - 6], [ax + 3, yV - 6]]); ctx.fill();
+  }
+
+  txt('VI ' + n0(r.VI) + ' L', tx, yI - 4, F.mono(11, 600), C.brand);
+  txt((r.VF === null ? 'V  ' : 'VF ') + n0(V) + ' L',
+      tx, Math.min(yV + 12, 180), F.mono(11, 600), C.ink);
+  if (Math.abs(yM - yV) > 13 && Math.abs(yM - yI) > 13)
+    txt('meta', tx, yM + 4, F.cond(9.5, 600), C['ink-3']);
+
+  txt(r.name, sx, 192, F.cond(10.5, 700), C.fluid);
+  txt('meta ' + r.target + ' L', x + w - 10, 192, F.mono(10, 500), C['ink-3'], 'right');
+  txt(n0(r.VI - V) + ' L', sx, 211, F.mono(18, 600), C.brand);
+}
+
+/* ----- un cuarto limpio con su ramal ----- */
+function drawRoom(i){
+  const r  = S.rooms[i];
+  const x0 = ROOM_X[i], y0 = ROOM_Y, w = ROOM_W, h = ROOM_H;
+  const bx = branchX(i), lx = lastX(i);
+  const flowing = r.q > 0.01;
+  const bf  = S.pipe.r[i] / BSEG[i];   // cuánto del ramal ya lleva lote B
+  const neu = atNozzle(i);             // ¿ya sale lote B por la boquilla?
+  const pushing = r.mode === 'flush' && !neu;
+
+  // bajante del cabezal: se traza antes del recinto para que la franja del
+  // cuarto lo tape, como si la tubería entrara por el cielo raso
+  pipe([[bx, HDR_Y], [bx, y0 + 4]], 9, 'b' + i, r.q, bf, BR_A[0], BR_A[1]);
+
+  // recinto del cuarto
+  rr(ctx, x0, y0, w, h, 4); ctx.fillStyle = C.panel; ctx.fill();
+  ctx.strokeStyle = r.mode === 'flush' ? (pushing ? C.old : C.fluid) : C.edge;
+  ctx.lineWidth = r.mode === 'flush' ? 1.8 : 1.2; ctx.stroke();
+
+  rr(ctx, x0, y0, w, 22, 4); ctx.save(); ctx.clip();
+  ctx.fillStyle = C['panel-2']; ctx.fillRect(x0, y0, w, 22); ctx.restore();
+  ctx.beginPath(); ctx.moveTo(x0, y0 + 22); ctx.lineTo(x0 + w, y0 + 22);
+  ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1; ctx.stroke();
+
+  txt(r.name, x0 + 9, y0 + 16, F.cond(13.5, 700), C.ink);
+
+  const chip = pushing              ? ['DESPLAZANDO', C['old-ink']]
+             : r.mode === 'flush'   ? ['FLUSHING', C.fluid]
+             : r.sub === 'setup'    ? ['PREPARANDO', C['ink-3']]
+             : r.sub === 'settle'   ? [S.scen === 'A' ? 'LECTURA' : 'CIERRE', C['ink-3']]
+             : r.mode === 'use'     ? ['EN USO', C.sage]
+             : ['CERRADA', C['ink-3']];
+  ctx.font = F.cond(9.5, 600);
+  const cw = ctx.measureText(chip[0]).width + 12;
+  rr(ctx, x0 + w - 9 - cw, y0 + 5, cw, 13, 2);
+  ctx.strokeStyle = chip[1]; ctx.lineWidth = 1; ctx.stroke();
+  txt(chip[0], x0 + w - 9 - cw / 2, y0 + 14.5, F.cond(9.5, 600), chip[1], 'center');
+
+  // ramal por dentro del cuarto, ya sobre el recinto
+  pipe([[bx, y0 + 22], [bx, y0 + 40], [lx, y0 + 40]], 9, 'r' + i, r.q, bf, BR_A[1], BR_A[2]);
+
+  // POU intermedios del ramal: cerrados, sin instrumento
+  ctx.lineCap = 'round';
+  [50, 74, 98].forEach(dx => {
+    ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(x0 + dx, y0 + 40); ctx.lineTo(x0 + dx, y0 + 49); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x0 + dx, y0 + 52, 3, 0, Math.PI * 2);
+    ctx.fillStyle = C.metal; ctx.fill();
+  });
+
+  // último POU: bajada, boquilla y chorro, del color del lote que sale
+  pipe([[lx, y0 + 40], [lx, y0 + 54]], 9, 'l' + i, r.q, bf, BR_A[2], BR_A[3]);
+  rr(ctx, lx - 6, y0 + 50, 12, 8, 2); ctx.fillStyle = C['edge-2']; ctx.fill();
+  stream(lx, y0 + 60, r.mode === 'flush' ? y0 + 90 : y0 + 94, r.q, i, neu);
+
+  if (r.mode === 'flush'){
+    const g = y0 + 90;
+    ctx.beginPath();
+    ctx.moveTo(lx - 20, g); ctx.lineTo(lx + 20, g);
+    ctx.lineTo(lx + 8, g + 18); ctx.lineTo(lx - 8, g + 18); ctx.closePath();
+    ctx.fillStyle = C.bore; ctx.fill();
+    ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.strokeStyle = neu ? C.fluid : C.old;
+    for (let k = -12; k <= 12; k += 8){
+      ctx.beginPath(); ctx.moveTo(lx + k, g + 2); ctx.lineTo(lx + k * .55, g + 15); ctx.stroke();
+    }
+  } else {
+    const vx = lx - 16, vy = y0 + 92, vw = 32, vh = 22;
+    rr(ctx, vx, vy, vw, vh, 2); ctx.fillStyle = C.bore; ctx.fill();
+    if (r.mode === 'use'){
+      const f = clamp(r.vessel / 10, 0, 1);
+      ctx.save(); rr(ctx, vx + 1.5, vy + 1.5, vw - 3, vh - 3, 1.5); ctx.clip();
+      ctx.fillStyle = neu ? C.fluid : C.old;
+      ctx.fillRect(vx, vy + vh - f * (vh - 3), vw, f * (vh - 3));
+      ctx.restore();
+    }
+    rr(ctx, vx, vy, vw, vh, 2); ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+
+  // instrumento propio del último POU
+  const mx = x0 + 12, my = y0 + 60, mw = 80, mh = 62;
+  if (S.scen === 'B'){
+    rr(ctx, mx, my, mw, mh, 3); ctx.fillStyle = C.bore; ctx.fill();
+    ctx.strokeStyle = C['edge-2']; ctx.lineWidth = 1.2; ctx.stroke();
+    txt('FT-' + r.id, mx + mw / 2, my + 15, F.cond(11.5, 700), C.fluid, 'center');
+    txt(n1(r.q), mx + mw / 2, my + 38, F.mono(19, 500), flowing ? C.ink : C['ink-3'], 'center');
+    txt('L/min', mx + mw / 2, my + 49, F.cond(10, 600), C['ink-3'], 'center');
+    txt(n0(r.vol > 0 ? r.vol : r.vessel) + ' L',
+        mx + mw / 2, my + 60, F.mono(11.5, 500), C['ink-2'], 'center');
+  } else {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    rr(ctx, mx, my, mw, mh, 3); ctx.strokeStyle = C.edge; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.restore();
+    txt('SIN MEDICIÓN', mx + mw / 2, my + 28, F.cond(11, 600), C['ink-3'], 'center');
+    txt('EN EL POU',    mx + mw / 2, my + 42, F.cond(11, 600), C['ink-3'], 'center');
+  }
+
+  // pie del cuarto
+  if (r.mode === 'flush'){
+    const p  = clamp(r.vol / r.target, 0, 1);
+    const pd = clamp(r.disp / r.target, 0, 1);
+    const col = neu ? C.fluid : C['old-ink'];
+    txt(n0(r.vol) + ' / ' + r.target + ' L purgados', x0 + 10, y0 + 146, F.mono(11.5, 500), col);
+    rr(ctx, x0 + 10, y0 + 150, w - 20, 6, 3); ctx.fillStyle = C.bore; ctx.fill();
+    ctx.save(); rr(ctx, x0 + 10, y0 + 150, w - 20, 6, 3); ctx.clip();
+    ctx.fillStyle = C.fluid; ctx.fillRect(x0 + 10, y0 + 150, (w - 20) * p, 6);
+    ctx.fillStyle = C.old;   ctx.fillRect(x0 + 10, y0 + 150, (w - 20) * Math.min(p, pd), 6);
+    ctx.restore();
+    txt(neu ? 'ya sale lote B por la boquilla'
+            : 'empujando lote A · faltan ' + n0(BSEG[i] - S.pipe.r[i]) + ' L',
+        x0 + 10, y0 + 168, F.cond(11, 600), col);
+  } else {
+    let s, col = C['ink-3'];
+    if (r.sub === 'setup')       s = 'preparando la purga';
+    else if (r.sub === 'settle') s = S.scen === 'A' ? 'midiendo V final' : 'cerrando la boquilla';
+    else if (r.done)             { s = 'purga completa · ' + r.target + ' L'; col = C.sage; }
+    else if (r.mode === 'use')   { s = flowing ? 'en uso · ' + n1(r.q) + ' L/min' : 'abierta, sin consumo';
+                                   if (flowing) col = C['ink-2']; }
+    else                         s = 'en espera · meta ' + r.target + ' L';
+    txt(s, x0 + 10, y0 + 150, F.cond(12, 500), col);
+    txt((neu ? 'lote B en el ramal · ' : 'lote A en el ramal · ') + r.line + ' L de línea',
+        x0 + 10, y0 + 168, F.cond(10.5, 500), neu ? C.fluid : C['old-ink']);
+  }
+
+  txt(r.tag, x0 + w / 2, y0 + h + 15, F.cond(10.5, 500), C['ink-3'], 'center');
+}
+
+/* ----- escena completa ----- */
+function drawScene(){
+  ctx.fillStyle = C.panel;
+  ctx.fillRect(0, 0, W, H);
+
+  // el cabezal pierde caudal en cada derivación
+  const seg = [];
+  for (let i = 0; i <= 4; i++){
+    let q = 0;
+    for (let j = i; j <= 4; j++) q += S.rooms[j].q;
+    seg.push(q);
+  }
+
+  // pierna muerta del tanque A: sigue llena de lote A, con su válvula cerrada
+  pipe([[VES.A.cx, VES.A.bot + VES.A.ry], [VES.A.cx, MAN_Y], [VES.B.cx, MAN_Y]],
+       10, 'dead', 0, 0);
+
+  // del tanque B al cabezal, y el cabezal hasta el último ramal
+  pipe([[VES.B.cx, VES.B.bot + VES.B.ry], [VES.B.cx, MAN_Y],
+        [ELB_X, MAN_Y], [ELB_X, HDR_Y], [branchX(0), HDR_Y]],
+       12, 'h0', seg[0], S.pipe.h[0] / HSEG[0]);
+  for (let i = 1; i <= 4; i++)
+    pipe([[branchX(i-1), HDR_Y], [branchX(i), HDR_Y]], 12, 'h' + i, seg[i],
+         S.pipe.h[i] / HSEG[i]);
+  // el tramo ciego después de CR4 nunca se purga: se queda con lote A
+  pipe([[branchX(4), HDR_Y], [1300, HDR_Y]], 12, 'tail', 0, 0);
+
+  drawVessels();
+  drawPump(250, MAN_Y);
+  drawPT();
+  drawDetail();
+  for (let i = 0; i < 5; i++) drawRoom(i);
+
+  txt('CABEZAL DE DISTRIBUCIÓN', 330, 266, F.cond(11, 600), C['ink-3']);
+}
+
+/* ======================================================================
+   5 · Cronograma de la campaña
+   ====================================================================== */
+const trace = $('#trace');
+const tg    = trace.getContext('2d');
+const TW = 852, TH = 230;
+const GX = { l:84, r:14, t:32, b:24 };
+const gx = t => GX.l + (clamp(t, 0, T_END) / T_END) * (TW - GX.l - GX.r);
+const BAND_Y = GX.t, BAND_H = 17;
+const ROW0 = 59, ROW_H = 23, ROW_G = 5;
+const rowY = i => ROW0 + i * (ROW_H + ROW_G);
+const GRID_BOT = rowY(4) + ROW_H;
+
+function seg(g, a, b, y, h, fill, stroke){
+  const x = gx(a), wd = Math.max(1, gx(b) - gx(a));
+  rr(g, x, y, wd, h, 2);
+  if (fill){ g.fillStyle = fill; g.fill(); }
+  if (stroke){ g.strokeStyle = stroke; g.lineWidth = 1; g.stroke(); }
+  return { x, w: wd };
+}
+
+/* Una muestra de la leyenda; devuelve dónde empieza la siguiente. */
+function legendChip(g, x, y, fill, label){
+  rr(g, x, y - 8, 14, 9, 2);
+  if (fill){ g.fillStyle = fill; g.fill(); }
+  g.strokeStyle = C['edge-2']; g.lineWidth = 1; g.stroke();
+  g.font = F.cond(10, 600); g.fillStyle = C['ink-2']; g.textAlign = 'left';
+  g.fillText(label, x + 19, y);
+  return x + 19 + g.measureText(label).width + 15;
+}
+
+function drawTrace(){
+  const g = tg;
+  g.fillStyle = C.panel; g.fillRect(0, 0, TW, TH);
+
+  // el cronograma es un panel más del esquema, con su propio marco
+  rr(g, 1, 1, TW - 2, TH - 2, 4);
+  g.fillStyle = C.panel; g.fill();
+  g.strokeStyle = C['edge-2']; g.lineWidth = 1.4; g.stroke();
+
+  const TITLE = 'CRONOGRAMA DE LA CAMPAÑA';
+  g.font = F.cond(11, 600); g.fillStyle = C['ink-3']; g.textAlign = 'left';
+  g.fillText(TITLE, 14, 19);
+  let lgx = 14 + g.measureText(TITLE).width + 22;
+  lgx = legendChip(g, lgx, 19, C.old,          'EMPUJA EL LOTE A');
+  lgx = legendChip(g, lgx, 19, C.fluid,        'PURGA CON LOTE B');
+  lgx = legendChip(g, lgx, 19, C['panel-2'],   'PREPARACIÓN Y LECTURA');
+  lgx = legendChip(g, lgx, 19, C['tint-sage'], 'CONSUMO NORMAL');
+  lgx = legendChip(g, lgx, 19, C['tint-brand'],'CONSUMO DETENIDO');
+
+  // rejilla de tiempo, cada 15 min
+  g.font = F.mono(11, 400); g.textAlign = 'center';
+  for (let t = 0; t <= T_END; t += 900){
+    const x = Math.round(gx(t)) + .5;
+    g.strokeStyle = C.edge; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x, BAND_Y); g.lineTo(x, GRID_BOT); g.stroke();
+    g.fillStyle = C['ink-3']; g.fillText(String(Math.round(t / 60)), x, GRID_BOT + 17);
+  }
+  g.textAlign = 'right';
+  g.font = F.cond(11.5, 600); g.fillStyle = C['ink-3'];
+  g.fillText('min', GX.l - 8, GRID_BOT + 17);
+
+  // banda de consumo de la planta: lo único que cambia entre escenarios
+  g.textAlign = 'right';
+  g.font = F.cond(11, 700); g.fillStyle = C['ink-2'];
+  g.fillText('PLANTA', GX.l - 8, BAND_Y + 13);
+  if (S.scen === 'A'){
+    const s1 = seg(g, 0, S.downEnd, BAND_Y, BAND_H, C['tint-brand'], C.brand);
+    seg(g, S.downEnd, T_END, BAND_Y, BAND_H, C['tint-sage'], C['edge-2']);
+    g.textAlign = 'center'; g.font = F.cond(10.5, 700); g.fillStyle = C.brand;
+    if (s1.w > 96) g.fillText('CONSUMO DETENIDO — ' + hms(S.downEnd), s1.x + s1.w / 2, BAND_Y + 12.5);
+  } else {
+    const s1 = seg(g, 0, T_END, BAND_Y, BAND_H, C['tint-sage'], C['edge-2']);
+    g.textAlign = 'center'; g.font = F.cond(10.5, 700); g.fillStyle = C.sage;
+    g.fillText('CONSUMO NORMAL DURANTE TODA LA CAMPAÑA', s1.x + s1.w / 2, BAND_Y + 12.5);
+  }
+
+  // una fila por cuarto
+  S.rooms.forEach((r, i) => {
+    const s = S.sch[i], y = rowY(i);
+
+    g.textAlign = 'right'; g.font = F.cond(11.5, 700);
+    g.fillStyle = r.mode === 'flush' ? C.fluid : C['ink-2'];
+    g.fillText(r.name, GX.l - 8, y + 16);
+
+    // fondo de la fila: cuándo el cuarto puede consumir
+    seg(g, 0, T_END, y, ROW_H, C.panel, C.edge);
+    if (S.scen === 'A'){
+      seg(g, S.downEnd, T_END, y, ROW_H, C['tint-sage'], null);
+    } else {
+      seg(g, 0, s.setup, y, ROW_H, C['tint-sage'], null);
+      seg(g, s.settle, T_END, y, ROW_H, C['tint-sage'], null);
+    }
+
+    // preparación · purga · lectura
+    seg(g, s.setup, s.flush,  y + 4, ROW_H - 8, C['panel-2'], C['edge-2']);
+    seg(g, s.end,   s.settle, y + 4, ROW_H - 8, C['panel-2'], C['edge-2']);
+    const fs = seg(g, s.flush, s.end, y + 3, ROW_H - 6, C.fluid, null);
+    /* Los primeros litros de cada purga no limpian nada: solo empujan el lote
+       anterior hasta sacarlo por la boquilla. Ese es el tramo en color ámbar. */
+    const dEnd = s.flush + r.disp / Q_FLUSH * 60;
+    g.save();
+    rr(g, fs.x, y + 3, fs.w, ROW_H - 6, 2); g.clip();
+    g.fillStyle = C.old;
+    g.fillRect(gx(s.flush), y + 3, gx(dEnd) - gx(s.flush), ROW_H - 6);
+    g.restore();
+
+    const lab = r.target + ' L';
+    g.font = F.cond(11, 700);
+    if (fs.w > g.measureText(lab).width + 14){
+      g.textAlign = 'center'; g.fillStyle = C.panel;
+      g.fillText(lab, fs.x + fs.w / 2, y + 16);
+    } else {
+      g.textAlign = 'left'; g.fillStyle = C['ink-3'];
+      g.fillText(lab, fs.x + fs.w + 5, y + 16);
+    }
+    seg(g, 0, T_END, y, ROW_H, null, C.edge);
+  });
+
+  // cabeza de reproducción
+  const hx = Math.round(gx(S.t)) + .5;
+  g.strokeStyle = C.ink; g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(hx, BAND_Y - 8); g.lineTo(hx, GRID_BOT); g.stroke();
+  g.beginPath(); g.moveTo(hx - 4, BAND_Y - 12); g.lineTo(hx + 4, BAND_Y - 12); g.lineTo(hx, BAND_Y - 5);
+  g.closePath(); g.fillStyle = C.ink; g.fill();
+
+  drawHover();
+}
+
+/* Qué hay bajo el puntero: la banda de la planta o un tramo de alguna fila. */
+function hoverInfo(mx, my){
+  if (my >= BAND_Y && my <= BAND_Y + BAND_H){
+    if (S.scen === 'A'){
+      const inStop = mx <= gx(S.downEnd);
+      return { k:'Planta', v: inStop ? 'Consumo detenido' : 'Consumo normal',
+               w: inStop ? '00:00 – ' + hms(S.downEnd) : hms(S.downEnd) + ' – ' + hms(T_END) };
+    }
+    return { k:'Planta', v:'Consumo normal', w:'00:00 – ' + hms(T_END) };
+  }
+  for (let i = 0; i < 5; i++){
+    const y = rowY(i);
+    if (my < y || my > y + ROW_H) continue;
+    const s = S.sch[i], r = S.rooms[i];
+    if (mx >= gx(s.setup) && mx < gx(s.flush))
+      return { k:r.name, v:'Preparación', w:hms(s.setup) + ' – ' + hms(s.flush) };
+    if (mx >= gx(s.flush) && mx < gx(s.end)){
+      const dEnd = s.flush + r.disp / Q_FLUSH * 60;
+      return mx < gx(dEnd)
+        ? { k:r.name, v:'Empuja el lote A · ' + r.disp + ' L', w:hms(s.flush) + ' – ' + hms(dEnd) }
+        : { k:r.name, v:'Flushing · ' + r.target + ' L',       w:hms(s.flush) + ' – ' + hms(s.end) };
+    }
+    if (mx >= gx(s.end) && mx < gx(s.settle))
+      return { k:r.name, v: S.scen === 'A' ? 'Lectura de V final' : 'Cierre',
+               w:hms(s.end) + ' – ' + hms(s.settle) };
+    const usable = S.scen === 'B' ? (mx < gx(s.setup) || mx >= gx(s.settle)) : mx >= gx(S.downEnd);
+    return { k:r.name, v: usable ? 'Glut Station en uso' : 'Cerrada', w:'' };
+  }
+  return null;
+}
+
+function drawHover(){
+  const tip = $('#tip');
+  if (!S.hover){ tip.style.opacity = 0; return; }
+  const info = hoverInfo(S.hover.x, S.hover.y);
+  if (!info){ tip.style.opacity = 0; return; }
+  const g = tg;
+  g.save();
+  g.setLineDash([2, 3]); g.strokeStyle = C['edge-2']; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(S.hover.x, BAND_Y); g.lineTo(S.hover.x, GRID_BOT); g.stroke();
+  g.restore();
+  tip.innerHTML = '<span class="k">' + info.k + '</span><br><b>' + info.v + '</b>' +
+                  (info.w ? '<br>' + info.w : '');
+  const rect = trace.getBoundingClientRect();
+  const k = rect.width / TW;
+  tip.style.left = (S.hover.x * k) + 'px';
+  tip.style.top  = (S.hover.y * k - 12) + 'px';
+  tip.style.opacity = 1;
+}
+
+trace.addEventListener('mousemove', e => {
+  const r = trace.getBoundingClientRect();
+  S.hover = { x:(e.clientX - r.left) * (TW / r.width), y:(e.clientY - r.top) * (TH / r.height) };
+});
+trace.addEventListener('mouseleave', () => { S.hover = null; });
+
+function drawTable(){
+  const rows = S.rooms.map((r,i) => {
+    const s = S.sch[i];
+    return '<tr><td>' + r.name + '</td><td>' + r.target + ' L</td><td>' +
+           r.disp + ' L</td><td>' +
+           hms(s.flush) + '</td><td>' + hms(s.end) + '</td><td>' +
+           Math.round(s.dur / 60) + ' min</td></tr>';
+  }).join('');
+  const dispTot = ROOMS.reduce((a, x, i) => a + dispOf(i), 0);
+  const extra = S.scen === 'A'
+    ? '<tr class="tot"><td>Campaña + cierre y reapertura</td><td>' + n0(TOTAL) +
+      ' L</td><td>' + n0(dispTot) + ' L</td><td colspan="2">planta detenida</td><td>' +
+      hms(S.downEnd) + '</td></tr>'
+    : '<tr class="tot"><td>Campaña</td><td>' + n0(TOTAL) +
+      ' L</td><td>' + n0(dispTot) + ' L</td><td colspan="2">sin detener la planta</td><td>' +
+      hms(S.workEnd) + '</td></tr>';
+  $('#tbody').innerHTML = rows + extra;
+}
+
+/* ======================================================================
+   6 · Paneles de texto
+   ====================================================================== */
+const READ = {
+  A: {
+    t: 'Hoy: dos horas con la línea cerrada',
+    p: 'Se cierra el tanque A y se abre el B: la solución nueva entra al cabezal y va empujando a la del lote anterior hasta sacarla por la boquilla del último POU. El PT-100 mide la presión hidrostática en el fondo del tanque en servicio; con las dimensiones del tanque esa presión se convierte en volumen. El volumen de cada purga se deduce restando <strong>V<sub>I</sub> − V<sub>F</sub></strong>, y el tanque no sabe por cuál boquilla salió el líquido: solo ve que bajó. Cualquier consumo en otro cuarto se confundiría con el flushing, así que la línea entera se cierra desde que arranca la primera estación hasta que termina la última.',
+    l: [
+      ['Instrumento', 'PT-100, sensor de presión en el tanque B'],
+      ['Método', 'Restar el volumen del tanque antes y después de cada purga'],
+      ['Desplazamiento', 'Los primeros litros de cada purga solo sacan el lote A de la tubería'],
+      ['Condición', 'Ningún consumo en los cinco cuartos durante toda la campaña'],
+      ['Costo', '2 h de planta detenida, cada vez']
+    ]
+  },
+  B: {
+    t: 'Con la aplicación: la misma campaña, sin detener la planta',
+    p: 'El cambio de lote es el mismo —el tanque B empuja al A por toda la línea—, pero el flujómetro de cada Glut final mide <strong>lo que sale por esa boquilla</strong>, y la aplicación lo registra contra el tiempo. La campaña sigue siendo secuencial y dura lo mismo: <strong>no se trata de purgar varios cuartos a la vez</strong>. Lo que cambia es que deja de importar que en otro cuarto se consuman unos litros, porque esos litros ya no entran en la cuenta. La actividad no se detiene.',
+    l: [
+      ['Instrumento', 'Un flujómetro en la Glut final de cada cuarto'],
+      ['Método', 'Leer el totalizador de esa boquilla'],
+      ['Desplazamiento', 'El mismo: el volumen mínimo ya contempla vaciar la línea del lote A'],
+      ['Condición', 'Ninguna: los demás cuartos siguen operando'],
+      ['Costo', 'Cero minutos de planta detenida']
+    ]
+  }
+};
+
+function paintRead(){
+  const r = READ[S.scen];
+  $('#readTitle').textContent = r.t;
+  $('#readP').innerHTML = r.p;
+  $('#readL').innerHTML = r.l.map(x => '<li><b>' + x[0] + '</b><em>' + x[1] + '</em></li>').join('');
+}
+
+function phaseNow(){
+  const t = S.t, i = activeRoom();
+  if (i < 0) return ['is-stop', 'Cambio de lote · se cierra A y se abre B',
+                     'El tanque B queda alimentando la línea, y se cierra el consumo en los cinco cuartos antes de abrir la primera boquilla.'];
+  const s = S.sch[i], r = S.rooms[i];
+  const stop = S.scen === 'A';
+  if (t < s.flush)  return [stop ? 'is-stop' : 'is-run', 'Preparando ' + r.name,
+                            'Se conecta la manguera al último POU del ramal, ' + r.tag + '.'];
+  if (t < s.end){
+    const pushing = !atNozzle(i);
+    return [stop ? 'is-stop' : 'is-run',
+            pushing ? 'Empujando el lote A en ' + r.name
+                    : 'Flushing en ' + r.name + ' · meta ' + r.target + ' L',
+            pushing ? 'Los primeros ' + n0(r.disp) + ' L de esta purga no limpian nada: solo sacan de la tubería la solución del lote anterior.'
+            : stop  ? 'El tanque baja solo por esta purga, así que la resta VI − V es válida.'
+                    : 'El FT-' + r.id + ' cuenta lo que sale por esta boquilla, sin importar el resto.'];
+  }
+  if (t < s.settle) return [stop ? 'is-stop' : 'is-run',
+                            stop ? 'Lectura de V final en ' + r.name : 'Cerrando ' + r.name,
+                            stop ? 'Se espera a que el nivel se estabilice para registrar VF.'
+                                 : 'El totalizador ya tiene el volumen; no hay que esperar al tanque.'];
+  if (stop && t < S.downEnd) return ['is-stop', 'Reapertura de la línea',
+                                     'Campaña terminada; se devuelve el consumo a los cinco cuartos.'];
+  return ['is-run', 'Campaña completa',
+          'Las cinco estaciones quedaron purgadas: ' + n0(TOTAL) + ' L en total.'];
+}
+
+function paintPanels(){
+  const R = S.rooms;
+  const f = phaseNow();
+  $('#status').className = 'status ' + f[0];
+  $('#stTxt').textContent = f[1];
+  $('#stSub').textContent = f[2];
+  $('#clk').textContent = hms(S.t);
+
+  // PT-100
+  const open = R.filter(r => r.q > 0.01).length;
+  $('#ptP').textContent = n1(pressOf(S.tank) + S.noise * 0.1);
+  $('#ptH').textContent = n3(levelOf(S.tank));
+  $('#ptV').textContent = n0(S.tank);
+  const ptChip = $('#ptChip');
+  if (open === 1){
+    ptChip.className = 'chip ok';   ptChip.textContent = 'Una sola Glut abierta';
+  } else if (open === 0){
+    ptChip.className = 'chip no';   ptChip.textContent = 'Ninguna Glut abierta';
+  } else {
+    ptChip.className = 'chip warn'; ptChip.textContent = open + ' Glut abiertas a la vez';
+  }
+
+  // resta del tanque para la estación en turno
+  const act = activeRoom();
+  const r   = act >= 0 ? R[act] : null;
+  const has = r && r.VI !== null;
+  const dv  = has ? r.VI - (r.VF === null ? S.tank : r.VF) : 0;
+  $('#dH3').innerHTML = has
+    ? 'V<sub>I</sub> &minus; V<sub>F</sub> &middot; ' + r.name + ' &middot; meta ' + r.target + ' L'
+    : 'Resta del tanque &middot; V<sub>I</sub> &minus; V<sub>F</sub>';
+  $('#dV').textContent = has ? n0(dv) : '—';
+  $('#dSub').innerHTML = has
+    ? 'V<sub>I</sub> ' + n0(r.VI) + ' L &nbsp;&rarr;&nbsp; ' +
+      (r.VF === null ? 'V ahora ' + n0(S.tank) : 'V<sub>F</sub> ' + n0(r.VF)) + ' L' +
+      '<br>de los cuales ' + n0(Math.min(dv, r.disp)) + ' L solo empujaron el lote A'
+    : 'Aún no arranca ninguna purga.';
+  const dChip = $('#dChip');
+  if (!has){
+    dChip.className = 'chip no';   dChip.textContent = 'Sin registrar';
+  } else if (S.scen === 'A'){
+    dChip.className = 'chip ok';   dChip.textContent = 'Es lo que salió por ' + r.name;
+  } else {
+    dChip.className = 'chip warn'; dChip.textContent = 'Incluye el consumo de otros cuartos';
+  }
+
+  // producción detenida
+  const d = $('#dwn'), dc = $('#dwnChip');
+  d.textContent = hms(S.downtime);
+  if (S.scen === 'A'){
+    d.className = 'big sm c-brand';
+    dc.className = 'chip warn';
+    dc.textContent = S.t >= S.downEnd ? 'Paro acumulado' : 'Línea cerrada';
+    $('#dwnSub').textContent = S.t >= S.downEnd
+      ? 'Lo que cuesta una campaña completa.'
+      : 'Los cinco cuartos, sin consumo.';
+  } else {
+    d.className = 'big sm c-sage';
+    dc.className = 'chip good';
+    dc.textContent = 'Producción continua';
+    $('#dwnSub').textContent = 'Ningún cuarto tuvo que cerrarse para medir.';
+  }
+
+  // avance de la campaña
+  const purged = R.reduce((a, x) => a + x.vol, 0);
+  const pushed = R.reduce((a, x) => a + Math.min(x.vol, x.disp), 0);
+  const doneN  = R.filter(x => x.done).length;
+  $('#cV').textContent = n0(purged);
+  $('#cBarOld').style.width = (clamp(pushed / TOTAL, 0, 1) * 100) + '%';
+  $('#cBar').style.width = (clamp((purged - pushed) / TOTAL, 0, 1) * 100) + '%';
+  $('#cSub').textContent = act < 0
+    ? 'Aún no arranca la primera estación'
+    : (doneN >= 5 ? 'Las 5 estaciones, completas'
+                  : 'Estación ' + (act + 1) + ' de 5 · ' + R[act].name +
+                    ' · ' + doneN + (doneN === 1 ? ' completada' : ' completadas'));
+
+  // el aviso que justifica el blackout de hoy
+  const al = $('#alert');
+  if (S.falseHit){
+    const fh = S.falseHit;
+    al.classList.add('on');
+    al.innerHTML = '<b>Por esto hoy no basta con dejar la línea abierta</b>' +
+      'Durante la purga de ' + fh.room + ', en el minuto ' + hms(fh.t) +
+      ', la resta del tanque ya marcaba los ' + fh.target + ' L, pero por la boquilla solo habían salido <strong>' +
+      n0(fh.sta) + ' L</strong>. Los ' + n0(fh.target - fh.sta) +
+      ' L de diferencia son el consumo de los otros cuartos, y para el tanque son indistinguibles del flushing. ' +
+      'El flujómetro de la boquilla no se deja confundir; el sensor de presión, sí.';
+  } else {
+    al.classList.remove('on');
+  }
+}
+
+/* ======================================================================
+   7 · Bucle y controles
+   ====================================================================== */
+let prev = performance.now();
+
+function frame(now){
+  S.rdt = Math.min(0.1, (now - prev) / 1000);
+  prev = now;
+  S.rt += S.rdt;
+
+  if (S.playing) update(S.rdt * S.speed);
+
+  drawScene();
+  drawTrace();
+  paintPanels();
+
+  requestAnimationFrame(frame);
+}
+
+function fit(){
+  const dpr = Math.min(2.5, devicePixelRatio || 1);
+  scene.width  = W * dpr;  scene.height = H * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  trace.width  = TW * dpr; trace.height = TH * dpr;
+  tg.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
+function syncPlayBtn(){
+  $('#btnPlay').textContent = S.playing ? 'Pausar' : (S.t >= T_END ? 'Repetir' : 'Reproducir');
+}
+
+function setScen(v){
+  S.scen = v;
+  $('#btnA').setAttribute('aria-pressed', v === 'A');
+  $('#btnB').setAttribute('aria-pressed', v === 'B');
+  reset();
+  S.playing = true;
+  syncPlayBtn();
+}
+
+$('#btnA').addEventListener('click', () => setScen('A'));
+$('#btnB').addEventListener('click', () => setScen('B'));
+$('#btnPlay').addEventListener('click', () => {
+  if (S.t >= T_END) reset();
+  S.playing = !S.playing;
+  syncPlayBtn();
+});
+$('#btnReset').addEventListener('click', () => { reset(); S.playing = true; syncPlayBtn(); });
+$$('.speed button').forEach(b => b.addEventListener('click', () => {
+  S.speed = Number(b.dataset.spd);
+  $$('.speed button').forEach(o => o.setAttribute('aria-pressed', o === b));
+  $('#spdTxt').textContent = '×' + S.speed;
+}));
+
+addEventListener('keydown', e => {
+  if (e.target.matches('input,textarea')) return;
+  if (e.code === 'Space'){ e.preventDefault(); $('#btnPlay').click(); }
+  if (e.key === 'r' || e.key === 'R') $('#btnReset').click();
+  if (e.key === '1') setScen('A');
+  if (e.key === '2') setScen('B');
+});
+
+addEventListener('resize', fit);
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+
+/* Enlace directo: #B abre el segundo escenario, #B,2400 lo abre en el segundo 2400. */
+const hm = /^#?([AB])?(?:[,:](\d+))?$/i.exec(decodeURIComponent(location.hash || ''));
+if (hm && hm[1]) S.scen = hm[1].toUpperCase();
+$('#btnA').setAttribute('aria-pressed', S.scen === 'A');
+$('#btnB').setAttribute('aria-pressed', S.scen === 'B');
+
+fit();
+reset();
+if (hm && hm[2]){
+  const n = clamp(Number(hm[2]), 0, T_END);
+  for (let k = 0; k < n * 2; k++) update(0.5);
+  drawTable();
+}
+syncPlayBtn();
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
